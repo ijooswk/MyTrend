@@ -136,6 +136,11 @@
   .relwrap{display:flex;flex-wrap:wrap;gap:6px}
   .kwchip.rel{background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
   .kwchip.rel b{color:var(--accent);margin-left:4px}
+  /* AI 드로어 */
+  .aiout{margin-top:10px;font-size:13px;line-height:1.65;background:var(--card);border:1px solid var(--line);
+    border-radius:10px;padding:12px;min-height:8px}.aiout:empty{display:none}
+  .aifoot{font-size:11px;color:var(--muted);padding:4px 2px}
+  #aiBtn{background:linear-gradient(90deg,#5b8cff,#a855f7);color:#fff;border:none}
 </style>
 </head>
 <body>
@@ -144,6 +149,7 @@
   <span class="sub" data-i18n="subtitle"></span>
   <div class="right">
     <span class="srcstat" id="hdrStat"></span>
+    <button class="iconbtn" id="aiBtn" title="AI" style="width:auto;padding:0 10px;font-weight:800">✨ AI</button>
     <button class="iconbtn" id="themeBtn" title="theme">🌙</button>
     <div class="langtog">
       <button data-lang="ko">KO</button><button data-lang="en">EN</button>
@@ -224,6 +230,19 @@
   <div class="body" id="resBody"></div>
   <div class="foot"><button id="resMerge" data-i18n="btn_merge"></button></div>
 </div>
+<div class="results aidrawer" id="aiDrawer">
+  <header style="display:flex;align-items:center"><h3 data-i18n="ai_title"></h3><button class="close" id="aiClose">×</button></header>
+  <div class="body">
+    <div id="aiDisabled" class="empty" style="position:static;height:auto;padding:14px;display:none"></div>
+    <div class="kwsec"><div class="kl" data-i18n="ai_brief_label"></div>
+      <button class="run" id="aiBriefBtn" data-i18n="ai_brief_btn" style="margin-top:0"></button>
+      <div id="aiBrief" class="aiout"></div></div>
+    <div class="kwsec"><div class="kl" data-i18n="ai_ask_label"></div>
+      <div class="searchbox"><input id="aiAskInput" data-i18n-ph="ai_ask_ph"><button id="aiAskBtn" data-i18n="ai_ask_btn"></button></div>
+      <div id="aiAnswer" class="aiout"></div></div>
+    <div class="aifoot" id="aiModel"></div>
+  </div>
+</div>
 <div class="results kwd" id="kwDrawer">
   <header style="display:flex;align-items:center"><h3 id="kwTitle"></h3><button class="close" id="kwClose">×</button></header>
   <div class="body" id="kwBody"></div>
@@ -251,6 +270,10 @@ const STR={
     d_freq:"빈도",d_sentiment:"감성",d_trend:"시간 추이",d_related:"연관 키워드",d_articles:"관련 기사",
     ins_busiest:"📊 최다 분야 {cat} · {count}건",ins_rising:"🚀 급상승 {kw} ×{score}",
     ins_hub:"🔗 허브 {kw} · 연결 {deg}",ins_sentiment:"🙂 전반 감성 {label}",ins_cluster:"🧩 핵심 토픽 {kws}",
+    ai_title:"✨ AI 분석",ai_brief_label:"트렌드 브리핑",ai_brief_btn:"브리핑 생성",
+    ai_ask_label:"트렌드에 질문하기",ai_ask_ph:"예: 왜 반도체가 급상승했나요?",ai_ask_btn:"질문",
+    ai_disabled:"AI 비활성 — .env에 OpenRouter 키를 설정하세요.",ai_loading:"생성 중…",ai_err:"요청 실패",
+    ai_evidence:"근거 기사 {n}건",ai_label_btn:"AI 토픽 라벨",
     res_title:"‘{q}’ 관련 뉴스",
     st_ready:"준비 완료 — 트렌드 맵을 생성하세요.",st_analyzing:"트렌드 분석 중…",
     st_searching:"‘{q}’ 검색 중…",st_ingesting:"전 소스에서 새로 수집 중…",
@@ -278,6 +301,10 @@ const STR={
     d_freq:"Frequency",d_sentiment:"Sentiment",d_trend:"Trend",d_related:"Related",d_articles:"Articles",
     ins_busiest:"📊 Top field {cat} · {count}",ins_rising:"🚀 Rising {kw} ×{score}",
     ins_hub:"🔗 Hub {kw} · {deg} links",ins_sentiment:"🙂 Overall sentiment {label}",ins_cluster:"🧩 Lead topic {kws}",
+    ai_title:"✨ AI analysis",ai_brief_label:"Trend briefing",ai_brief_btn:"Generate briefing",
+    ai_ask_label:"Ask about the trends",ai_ask_ph:"e.g. Why is semiconductor rising?",ai_ask_btn:"Ask",
+    ai_disabled:"AI disabled — set an OpenRouter key in .env.",ai_loading:"Generating…",ai_err:"Request failed",
+    ai_evidence:"{n} source articles",ai_label_btn:"AI topic labels",
     res_title:"News for ‘{q}’",
     st_ready:"Ready — generate the trend map.",st_analyzing:"Analyzing trends…",
     st_searching:"Searching ‘{q}’…",st_ingesting:"Fetching from all sources…",
@@ -697,6 +724,40 @@ async function drawSpark(kw,node){
   }catch(e){$("kwSpark").textContent="—";}
 }
 
+//──────────── AI 드로어 ────────────
+let aiStatus=null,aiLabels=null;
+function aiParams(extra){const p=new URLSearchParams(Object.assign({lang,hours:$("hours").value},extra||{}));
+  selected("cat").forEach(v=>p.append("categories",v));regionIds().forEach(v=>p.append("regions",v));return p;}
+const fmtAI=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/\n/g,"<br>");
+async function openAI(){
+  $("aiDrawer").classList.add("open");
+  if(aiStatus===null){try{aiStatus=await fetch(API+"/api/ai/status").then(r=>r.json());}catch(e){aiStatus={enabled:false};}}
+  const dis=$("aiDisabled"),on=aiStatus.enabled;
+  dis.style.display=on?"none":"block";if(!on)dis.textContent=t("ai_disabled");
+  ["aiBriefBtn","aiAskBtn","aiAskInput"].forEach(id=>$(id).disabled=!on);
+  $("aiModel").textContent=on?`model: ${aiStatus.model}`:"";
+}
+async function genBrief(){
+  const out=$("aiBrief");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;$("aiBriefBtn").disabled=true;
+  try{const r=await fetch(API+"/api/ai/briefing?"+aiParams(),{method:"POST"});
+    out.innerHTML=r.ok?fmtAI((await r.json()).text):t("ai_err");
+  }catch(e){out.textContent=t("ai_err");}
+  $("aiBriefBtn").disabled=false;
+}
+async function askAI(){
+  const q=$("aiAskInput").value.trim();if(!q)return;
+  const out=$("aiAnswer");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
+  try{const r=await fetch(API+"/api/ai/ask?"+aiParams({q}),{method:"POST"});
+    if(!r.ok){out.textContent=t("ai_err");}
+    else{const d=await r.json();out.innerHTML=fmtAI(d.answer)+`<div class="aifoot">${t("ai_evidence",{n:d.evidence})}</div>`;}
+  }catch(e){out.textContent=t("ai_err");}
+}
+$("aiBtn").addEventListener("click",openAI);
+$("aiClose").addEventListener("click",()=>$("aiDrawer").classList.remove("open"));
+$("aiBriefBtn").addEventListener("click",genBrief);
+$("aiAskBtn").addEventListener("click",askAI);
+$("aiAskInput").addEventListener("keydown",e=>{if(e.key==="Enter")askAI();});
+
 //════════════════ 이벤트 ════════════════
 $("run").addEventListener("click",run);
 $("ingest").addEventListener("click",ingestNow);
@@ -742,11 +803,12 @@ function applyUrlState(){
 // 키보드 단축키
 document.addEventListener("keydown",e=>{
   const tag=(e.target.tagName||"").toLowerCase();
-  if(e.key==="Escape"){$("results").classList.remove("open");$("kwDrawer").classList.remove("open");return;}
+  if(e.key==="Escape"){["results","kwDrawer","aiDrawer"].forEach(id=>$(id).classList.remove("open"));return;}
   if(tag==="input"||tag==="textarea")return;
   if(e.metaKey||e.ctrlKey||e.altKey)return;
   if(e.key==="/"){e.preventDefault();$("kwInput").focus();}
   else if(e.key==="g")run();
+  else if(e.key==="a")openAI();
   else if(e.key==="t")$("themeBtn").click();
   else if(e.key==="l"){lang=lang==="ko"?"en":"ko";localStorage.setItem("mt_lang",lang);applyLang();saveState();}
   else if(/^[1-6]$/.test(e.key)){const tabs=document.querySelectorAll(".tab");if(tabs[+e.key-1])tabs[+e.key-1].click();}
