@@ -76,11 +76,19 @@ uvicorn app.main:app --reload --port 8000
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
-| GET | `/api/config` | 분야·지역·소스 메타데이터 |
+| GET | `/api/config` | 분야·지역(한/영 라벨)·소스 메타데이터 |
 | GET | `/api/trends` | 트렌드 맵 (`categories`,`regions`,`sources`,`hours`,`min_freq`,`max_kw`,`live`) |
+| GET | `/api/search` | 키워드 뉴스 검색 (`q`,`regions`,`hours`,`store`). 관련 기사 목록 + 미니 트렌드 반환. `store=true` 면 DB에 병합 |
 | POST | `/api/ingest` | 수동 즉시 수집 |
 | GET | `/api/stats` | DB·스케줄러 상태 |
 | GET | `/api/health` | 헬스체크 |
+
+## 프론트엔드 기능
+
+- **지역 토글**: 상단에서 한국 / 글로벌 / 통합 전환.
+- **다국어**: 한국어 ↔ 영어 UI 전환(선택값은 브라우저에 저장).
+- **3종 시각화**: 키워드 네트워크(곡선 링크·글로우·인접 하이라이트), 워드클라우드(구름 배경·밀도·글로우), 분야별 버블.
+- **키워드 검색**: 임의 키워드로 관련 뉴스를 실시간 검색해 사이드 패널에 목록 표시(제목·출처·링크), 원하면 트렌드 맵에 병합(`SEARCH` 분야로 표시).
 
 ## 환경변수
 
