@@ -21,6 +21,7 @@ services:
       EODHD_API_TOKEN: "${EODHD_API_TOKEN:-}"
       NEWSAPI_KEY: "${NEWSAPI_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
+      MYTREND_AI_MODEL: "${MYTREND_AI_MODEL:-openai/gpt-4o-mini}"
     volumes:
       - mytrend_data:/app/data
     healthcheck:

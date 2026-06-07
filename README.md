@@ -81,6 +81,10 @@ uvicorn app.main:app --reload --port 8000
 | GET | `/api/search` | 키워드 뉴스 검색 (`q`,`regions`,`hours`,`store`). 관련 기사 목록 + 미니 트렌드 반환. `store=true` 면 DB에 병합 |
 | GET | `/api/timeline` | 시간버킷별 키워드 빈도 시계열(`keyword`,`buckets` + trends 필터) |
 | GET | `/api/export` | 트렌드 키워드를 CSV/JSON 으로 내보내기(`fmt=csv|json` + trends 필터) |
+| GET | `/api/ai/status` | AI 사용 가능 여부 + 모델 |
+| POST | `/api/ai/briefing` | 현재 트렌드를 자연어 브리핑으로 생성 |
+| POST | `/api/ai/label-clusters` | 토픽 군집에 짧은 테마 라벨 부여 |
+| POST | `/api/ai/ask` | 현재 기사 제목을 근거로 질문에 답변(RAG-lite) |
 | POST | `/api/ingest` | 수동 즉시 수집 |
 | GET | `/api/stats` | DB·스케줄러 상태 |
 | GET | `/api/health` | 헬스체크 |
@@ -95,6 +99,16 @@ uvicorn app.main:app --reload --port 8000
 - **자동 인사이트**: 최다 분야·급상승·허브 키워드·전반 감성·핵심 토픽을 구조화해 제공(프론트에서 다국어 렌더).
 - **타임라인**: 키워드별 시간대별 빈도 시계열(스파크라인·드릴다운).
 - **내보내기**: 키워드·빈도·분야·감성·연결수·대표기사를 CSV/JSON 으로 추출해 다른 도구/분야에서 재사용.
+
+## AI 기능 (OpenRouter)
+
+`.env` 의 `OPENROUTER_API_KEY` 가 있으면 활성화된다(없으면 UI가 비활성 표시). 비용/오남용 방지를 위해 **모두 사용자가 버튼으로 호출**하는 온디맨드 방식이며, 동일 입력은 캐시한다(`MYTREND_AI_CACHE_TTL`).
+
+- **트렌드 브리핑**: 현재 트렌드(상위 키워드·급상승·감성·군집)를 LLM이 한/영 자연어 브리핑으로 요약.
+- **토픽 자동 라벨링**: 토픽 군집(키워드 묶음)에 짧은 테마 라벨을 부여 → 군집 색상 모드의 범례·툴팁에 표시.
+- **트렌드 Q&A**: 질문을 현재 기사 제목들을 근거로 답변(RAG-lite). 근거가 부족하면 그렇다고 답하도록 제약.
+
+프론트엔드 헤더의 **✨ AI** 버튼(단축키 `a`)으로 드로어를 연다. 모델은 `MYTREND_AI_MODEL`(기본 `openai/gpt-4o-mini`)로 변경 가능. LLM 호출은 사용자의 OpenRouter 크레딧을 사용한다.
 
 ## 테스트
 
