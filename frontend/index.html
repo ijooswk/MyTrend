@@ -121,6 +121,17 @@
   .rise .track i{display:block;height:100%;border-radius:5px}
   .rise .met{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:120px;text-align:right}
   .rise .sc{font-weight:800;color:var(--ok)}
+  /* 키워드 상세 드로어 */
+  #kwDrawer .body{padding:14px 16px}
+  .kwstat{display:flex;gap:10px;margin-bottom:14px}
+  .kwstat>div{flex:1;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  .kwstat .kl{font-size:11px;color:var(--muted)}
+  .kwstat .kvv{font-size:16px;font-weight:800;margin-top:2px}
+  .kwsec{margin-bottom:16px}
+  .kwsec>.kl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:6px;font-weight:700}
+  .relwrap{display:flex;flex-wrap:wrap;gap:6px}
+  .kwchip.rel{background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
+  .kwchip.rel b{color:var(--accent);margin-left:4px}
 </style>
 </head>
 <body>
@@ -207,6 +218,10 @@
   <div class="body" id="resBody"></div>
   <div class="foot"><button id="resMerge" data-i18n="btn_merge"></button></div>
 </div>
+<div class="results kwd" id="kwDrawer">
+  <header style="display:flex;align-items:center"><h3 id="kwTitle"></h3><button class="close" id="kwClose">×</button></header>
+  <div class="body" id="kwBody"></div>
+</div>
 <div class="tooltip" id="tip"></div>
 
 <script>
@@ -227,6 +242,7 @@ const STR={
     sent_pos:"긍정",sent_neg:"부정",sent_neu:"중립",
     kpi_articles:"기사",kpi_keywords:"키워드",kpi_clusters:"토픽군집",kpi_sources:"소스",kpi_sentiment:"감성",
     cm_cat:"분야",cm_cluster:"군집",cm_sent:"감성",
+    d_freq:"빈도",d_sentiment:"감성",d_trend:"시간 추이",d_related:"연관 키워드",d_articles:"관련 기사",
     res_title:"‘{q}’ 관련 뉴스",
     st_ready:"준비 완료 — 트렌드 맵을 생성하세요.",st_analyzing:"트렌드 분석 중…",
     st_searching:"‘{q}’ 검색 중…",st_ingesting:"전 소스에서 새로 수집 중…",
@@ -251,6 +267,7 @@ const STR={
     sent_pos:"positive",sent_neg:"negative",sent_neu:"neutral",
     kpi_articles:"Articles",kpi_keywords:"Keywords",kpi_clusters:"Topics",kpi_sources:"Sources",kpi_sentiment:"Sentiment",
     cm_cat:"Field",cm_cluster:"Cluster",cm_sent:"Sentiment",
+    d_freq:"Frequency",d_sentiment:"Sentiment",d_trend:"Trend",d_related:"Related",d_articles:"Articles",
     res_title:"News for ‘{q}’",
     st_ready:"Ready — generate the trend map.",st_analyzing:"Analyzing trends…",
     st_searching:"Searching ‘{q}’…",st_ingesting:"Fetching from all sources…",
@@ -509,7 +526,8 @@ function drawNetwork(data){
     link.attr("stroke-opacity",l=>l.source.id===d.id||l.target.id===d.id?.9:.04);
     node.style("opacity",n=>n.id===d.id||adj.has(n.id)?1:.18);})
    .on("mousemove",moveTip)
-   .on("mouseout",()=>{hideTip();link.attr("stroke-opacity",.22);node.style("opacity",1);});
+   .on("mouseout",()=>{hideTip();link.attr("stroke-opacity",.22);node.style("opacity",1);})
+   .on("click",(e,d)=>{if(!e.defaultPrevented)openKeyword(d.id);});
   netSim.on("tick",()=>{
     link.attr("d",d=>{const x1=d.source.x,y1=d.source.y,x2=d.target.x,y2=d.target.y;
       const dr=Math.hypot(x2-x1,y2-y1)*1.6;return `M${x1},${y1}A${dr},${dr} 0 0,1 ${x2},${y2}`;});
@@ -614,6 +632,46 @@ function drawTreemap(data){
     .on("click",(e,d)=>{if(window.openKeyword)openKeyword(d.data.name);});
 }
 
+//──────────── 키워드 상세 드로어 ────────────
+async function openKeyword(kw){
+  const node=(lastData&&lastData.kws||[]).find(k=>k.id===kw);if(!node)return;
+  const rel=[];(lastData.links||[]).forEach(l=>{const s=l.source.id||l.source,tt=l.target.id||l.target;
+    if(s===kw)rel.push([tt,l.value]);else if(tt===kw)rel.push([s,l.value]);});
+  rel.sort((a,b)=>b[1]-a[1]);
+  const arts=node.articles||[];
+  $("kwTitle").textContent=kw;
+  $("kwBody").innerHTML=`
+    <div class="kwstat">
+      <div><div class="kl">${t("d_freq")}</div><div class="kvv">${node.freq}</div></div>
+      <div><div class="kl">${t("d_sentiment")}</div><div class="kvv">${sentArrow(node.sent||0)} ${sentWord(node.sent||0)}</div></div>
+      <div><div class="kl">${catLabel(node.cat)}</div><div class="kvv" style="color:${colorOf(node.cat)}">●</div></div>
+    </div>
+    <div class="kwsec"><div class="kl">${t("d_trend")}</div><div id="kwSpark" style="color:var(--muted);font-size:12px">…</div></div>
+    <div class="kwsec"><div class="kl">${t("d_related")}</div><div class="relwrap">${rel.slice(0,14).map(([k,v])=>`<span class="kwchip rel" data-rk="${encodeURIComponent(k)}">${k}<b>${v}</b></span>`).join("")||"—"}</div></div>
+    <div class="kwsec"><div class="kl">${t("d_articles")}</div>${arts.map(a=>`<a class="artitem" href="${a.url}" target="_blank" rel="noopener"><div class="t">${a.title}</div><div class="m"><span>${a.publisher||""}</span><span>${catLabel(a.category)}</span></div></a>`).join("")||"—"}</div>`;
+  $("kwDrawer").classList.add("open");
+  $("kwBody").querySelectorAll(".rel").forEach(el=>el.addEventListener("click",()=>openKeyword(decodeURIComponent(el.dataset.rk))));
+  drawSpark(kw,node);
+}
+window.openKeyword=openKeyword;
+async function drawSpark(kw,node){
+  try{
+    const p=new URLSearchParams({keyword:kw,hours:$("hours").value,buckets:"24"});
+    selected("cat").forEach(v=>p.append("categories",v));regionIds().forEach(v=>p.append("regions",v));
+    const tl=await fetch(API+"/api/timeline?"+p).then(r=>r.json());
+    const vals=tl.series[kw]||[];const wrap=$("kwSpark");
+    if(!vals.length||vals.every(v=>!v)){wrap.textContent="—";return;}
+    const W=wrap.clientWidth||320,H=64,mx=Math.max(...vals,1);
+    const x=i=>vals.length>1?i/(vals.length-1)*W:0,y=v=>H-4-(v/mx)*(H-12);
+    const line=vals.map((v,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+    const area=`M0,${H} `+vals.map((v,i)=>`L${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ")+` L${W},${H} Z`;
+    const col=nodeColor(node);
+    wrap.innerHTML=`<svg width="100%" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+      <path d="${area}" fill="${col}" fill-opacity=".18"/>
+      <path d="${line}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round"/></svg>`;
+  }catch(e){$("kwSpark").textContent="—";}
+}
+
 //════════════════ 이벤트 ════════════════
 $("run").addEventListener("click",run);
 $("ingest").addEventListener("click",ingestNow);
@@ -625,6 +683,7 @@ $("export").addEventListener("click",()=>{
 $("kwBtn").addEventListener("click",()=>doSearch($("kwInput").value));
 $("kwInput").addEventListener("keydown",e=>{if(e.key==="Enter")doSearch($("kwInput").value);});
 $("resClose").addEventListener("click",()=>$("results").classList.remove("open"));
+$("kwClose").addEventListener("click",()=>$("kwDrawer").classList.remove("open"));
 $("resMerge").addEventListener("click",mergeSearch);
 document.querySelectorAll(".langtog button").forEach(b=>b.addEventListener("click",()=>{
   lang=b.dataset.lang;localStorage.setItem("mt_lang",lang);applyLang();}));
