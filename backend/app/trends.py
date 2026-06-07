@@ -63,6 +63,11 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
         "sources_filter": sources,
         "generated_at": now,
     })
+    if len(_CACHE) > 256:          # 메모리 무한증가 방지
+        for k in [k for k, (exp, _) in _CACHE.items() if exp <= now]:
+            _CACHE.pop(k, None)
+        if len(_CACHE) > 256:
+            _CACHE.clear()
     _CACHE[ck] = (now + s.mytrend_cache_ttl, payload)
     return payload
 
