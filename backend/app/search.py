@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import calendar
 import math
+import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote
 
 import feedparser
@@ -103,6 +104,44 @@ async def _tavily(client: httpx.AsyncClient, query: str, regions: list[str],
     return out
 
 
+async def _eodhd(client: httpx.AsyncClient, query: str, hours: int,
+                 limit: int) -> list[Article]:
+    """EODHD 금융뉴스 검색. 질의가 티커형이면 s=, 아니면 t=태그 로 조회."""
+    key = get_settings().eodhd_api_key
+    if not key:
+        return []
+    q = query.strip()
+    days = max(1, math.ceil(hours / 24))
+    frm = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
+    params = {"api_token": key, "limit": min(max(limit, 1), 1000), "fmt": "json", "from": frm}
+    if re.fullmatch(r"[A-Za-z][A-Za-z.\-]{0,11}", q):   # 티커형(영문/점, 공백 없음)
+        params["s"] = q.upper()
+    else:                                                # 그 외는 토픽 태그(AI 자동태그 지원)
+        params["t"] = q
+    try:
+        resp = await client.get("https://eodhd.com/api/news", params=params)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out: list[Article] = []
+    for item in data:
+        title = (item.get("title") or "").strip()
+        if not title:
+            continue
+        ts = _parse_iso(item.get("date")) or time.time()
+        out.append(Article(
+            id=Article.make_id(item.get("link", ""), title),
+            title=title, url=item.get("link", ""), source="search_eodhd",
+            publisher=_domain(item.get("link", "")) or "EODHD", category=CATEGORY,
+            region="US", lang="en", published_at=ts, fetched_at=time.time(),
+            summary=(item.get("content") or "")[:300],
+        ))
+    return out
+
+
 async def search_news(query: str, *, regions: list[str] | None = None,
                       hours: int = 24, per_region: int = 30) -> list[Article]:
     """키워드로 관련 기사를 실시간 검색해 중복 제거 후 반환."""
@@ -111,11 +150,12 @@ async def search_news(query: str, *, regions: list[str] | None = None,
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True,
                                  headers={"User-Agent": USER_AGENT}) as client:
         import asyncio
-        g, t = await asyncio.gather(
+        g, t, e = await asyncio.gather(
             _gnews(client, query, regions, hours, per_region),
             _tavily(client, query, regions, hours, per_region),
+            _eodhd(client, query, hours, per_region),
         )
-    merged = g + t
+    merged = g + t + e
     seen, dedup = set(), []
     for a in merged:
         k = a.title.lower().replace(" ", "")
