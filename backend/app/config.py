@@ -16,8 +16,11 @@ class Settings(BaseSettings):
     eodhd_api_key: str = Field(
         "", validation_alias=AliasChoices("EODHD_API_KEY", "EODHD_API_TOKEN"))
     newsapi_key: str = ""
-    # OpenRouter (LLM 게이트웨이) — 트렌드 요약 등 LLM 기능용
+    # OpenRouter (LLM 게이트웨이) — AI 브리핑·라벨링·Q&A
     openrouter_api_key: str = ""
+    mytrend_ai_model: str = "openai/gpt-4o-mini"
+    mytrend_ai_max_tokens: int = 700
+    mytrend_ai_cache_ttl: int = 600
 
     # 동작 설정
     mytrend_db_path: str = "mytrend.db"
