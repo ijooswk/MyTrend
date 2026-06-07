@@ -8,12 +8,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3-cloud/1.2.7/d3.layout.cloud.min.js"></script>
 <style>
   :root{--bg:#0b0e16;--panel:#141824;--panel2:#1c2130;--line:#2a3142;--txt:#e8eaf0;
-    --muted:#94a0b8;--accent:#5b8cff;--ok:#34d399;--err:#fb7185;--search:#e879f9;}
+    --muted:#94a0b8;--accent:#5b8cff;--ok:#34d399;--err:#fb7185;--search:#e879f9;
+    --stage:#0b0e16;--stageInk:#eef1f8;--stageStroke:#0b0e16;--card:#171c28;}
+  :root[data-theme="light"]{--bg:#eef1f7;--panel:#ffffff;--panel2:#f1f4fa;--line:#dde3ee;
+    --txt:#1a2030;--muted:#5b6678;--accent:#3b6ef5;--card:#ffffff;}
   *{box-sizing:border-box}
   body{margin:0;font-family:'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
-    background:radial-gradient(1200px 600px at 70% -10%,#161b2c,#0b0e16);color:var(--txt);font-size:14px}
+    background:var(--bg);color:var(--txt);font-size:14px;transition:background .2s,color .2s}
   header{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--line);
-    background:rgba(11,14,22,.7);backdrop-filter:blur(8px)}
+    background:var(--panel)}
   header h1{font-size:17px;margin:0;font-weight:800;letter-spacing:-.3px}
   header .sub{color:var(--muted);font-size:12px}
   header .right{margin-left:auto;display:flex;align-items:center;gap:14px}
@@ -61,7 +64,18 @@
     border:1px solid transparent;border-bottom:none;font-weight:700}
   .tab.active{color:var(--txt);background:var(--panel);border-color:var(--line)}
   .legend{display:flex;gap:14px;flex-wrap:wrap;padding:8px 16px;font-size:12px;border-bottom:1px solid var(--line)}
-  .view{flex:1;position:relative;overflow:hidden}
+  .view{flex:1;position:relative;overflow:hidden;background:var(--stage)}
+  /* 헤더 KPI 카드 */
+  .kpis{display:flex;gap:10px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+  .kpi{display:flex;flex-direction:column;gap:2px;min-width:96px;padding:8px 12px;background:var(--card);
+    border:1px solid var(--line);border-radius:10px}
+  .kpi .kv{font-size:20px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+  .kpi .kl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .kpi.sent .kv{display:flex;align-items:center;gap:6px}
+  .gauge{width:54px;height:6px;border-radius:4px;background:linear-gradient(90deg,var(--err),#9aa3b5,var(--ok));position:relative}
+  .gauge i{position:absolute;top:-3px;width:3px;height:12px;background:var(--txt);border-radius:2px;transform:translateX(-50%)}
+  .iconbtn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;
+    width:34px;height:30px;cursor:pointer;font-size:15px}
   .pane{position:absolute;inset:0;display:none}.pane.active{display:block}
   #netSvg,#bubbleSvg,#cloudSvg{width:100%;height:100%;display:block}
   .status{padding:8px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);
@@ -112,11 +126,19 @@
   <span class="sub" data-i18n="subtitle"></span>
   <div class="right">
     <span class="srcstat" id="hdrStat"></span>
+    <button class="iconbtn" id="themeBtn" title="theme">🌙</button>
     <div class="langtog">
       <button data-lang="ko">KO</button><button data-lang="en">EN</button>
     </div>
   </div>
 </header>
+<div class="kpis" id="kpis">
+  <div class="kpi"><div class="kv" id="kpiArticles">–</div><div class="kl" data-i18n="kpi_articles"></div></div>
+  <div class="kpi"><div class="kv" id="kpiKeywords">–</div><div class="kl" data-i18n="kpi_keywords"></div></div>
+  <div class="kpi"><div class="kv" id="kpiClusters">–</div><div class="kl" data-i18n="kpi_clusters"></div></div>
+  <div class="kpi"><div class="kv" id="kpiSources">–</div><div class="kl" data-i18n="kpi_sources"></div></div>
+  <div class="kpi sent"><div class="kv" id="kpiSent"><span id="kpiSentTxt">–</span><span class="gauge"><i id="kpiSentNeedle" style="left:50%"></i></span></div><div class="kl" data-i18n="kpi_sentiment"></div></div>
+</div>
 
 <div class="regionbar">
   <span class="hint" data-i18n="region_label"></span>
@@ -198,6 +220,7 @@ const STR={
     btn_merge:"이 키워드를 트렌드 맵에 추가",btn_export:"⬇ CSV 내보내기",
     rising_new:"NEW",rising_empty:"급상승 키워드가 충분치 않습니다. 데이터가 더 쌓이면 표시됩니다.",
     sent_pos:"긍정",sent_neg:"부정",sent_neu:"중립",
+    kpi_articles:"기사",kpi_keywords:"키워드",kpi_clusters:"토픽군집",kpi_sources:"소스",kpi_sentiment:"감성",
     res_title:"‘{q}’ 관련 뉴스",
     st_ready:"준비 완료 — 트렌드 맵을 생성하세요.",st_analyzing:"트렌드 분석 중…",
     st_searching:"‘{q}’ 검색 중…",st_ingesting:"전 소스에서 새로 수집 중…",
@@ -220,6 +243,7 @@ const STR={
     btn_merge:"Add this keyword to the trend map",btn_export:"⬇ Export CSV",
     rising_new:"NEW",rising_empty:"Not enough data for rising keywords yet.",
     sent_pos:"positive",sent_neg:"negative",sent_neu:"neutral",
+    kpi_articles:"Articles",kpi_keywords:"Keywords",kpi_clusters:"Topics",kpi_sources:"Sources",kpi_sentiment:"Sentiment",
     res_title:"News for ‘{q}’",
     st_ready:"Ready — generate the trend map.",st_analyzing:"Analyzing trends…",
     st_searching:"Searching ‘{q}’…",st_ingesting:"Fetching from all sources…",
@@ -231,6 +255,9 @@ const STR={
     conn_err:"❌ Cannot reach backend. Start the server first.",no_results:"No results."},
 };
 let lang=localStorage.getItem("mt_lang")||"ko";
+let theme=localStorage.getItem("mt_theme")||"dark";
+function applyTheme(){document.documentElement.dataset.theme=theme;
+  const b=document.getElementById("themeBtn");if(b)b.textContent=theme==="dark"?"🌙":"☀️";}
 const t=(k,vars={})=>{let s=STR[lang][k]??k;for(const v in vars)s=s.replaceAll("{"+v+"}",vars[v]);return s;};
 function applyLang(){
   document.documentElement.lang=lang;
@@ -259,6 +286,15 @@ const hideTip=()=>tip.style.display="none";
 const bind=(id,vid)=>{const s=$(id),v=$(vid);s.addEventListener("input",()=>v.textContent=s.value);};
 bind("hours","hoursVal");bind("minFreq","minFreqVal");bind("maxKw","maxKwVal");bind("perFeed","perFeedVal");
 function setStatus(html,busy){$("status").innerHTML=(busy?'<span class="spin"></span>':"")+html;}
+function updateKPIs(data){
+  $("kpiArticles").textContent=data?data.articleCount:"–";
+  $("kpiKeywords").textContent=data?data.kws.length:"–";
+  $("kpiClusters").textContent=data&&data.clusters?data.clusters.length:"–";
+  $("kpiSources").textContent=SOURCES.filter(s=>s.enabled).length;
+  const so=data?(data.sentimentOverall||0):0;
+  $("kpiSentTxt").innerHTML=data?`${sentArrow(so)} ${so.toFixed(2)}`:"–";
+  $("kpiSentNeedle").style.left=`${Math.round((so+1)/2*100)}%`;
+}
 
 //════════════════ 초기화 ════════════════
 async function init(){
@@ -302,7 +338,7 @@ async function run(){
   $("run").disabled=true;$("netEmpty").style.display="none";setStatus(t("st_analyzing"),true);
   try{
     const data=await fetch(API+"/api/trends?"+trendParams()).then(r=>r.json());
-    lastData=data;renderControls();
+    lastData=data;renderControls();updateKPIs(data);
     if(!data.kws||!data.kws.length){setStatus(t("st_nokw"));$("run").disabled=false;return;}
     redraw();
     const so=data.sentimentOverall||0;
@@ -524,6 +560,8 @@ $("resClose").addEventListener("click",()=>$("results").classList.remove("open")
 $("resMerge").addEventListener("click",mergeSearch);
 document.querySelectorAll(".langtog button").forEach(b=>b.addEventListener("click",()=>{
   lang=b.dataset.lang;localStorage.setItem("mt_lang",lang);applyLang();}));
+$("themeBtn").addEventListener("click",()=>{
+  theme=theme==="dark"?"light":"dark";localStorage.setItem("mt_theme",theme);applyTheme();});
 $("regionSeg").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   region=b.dataset.region;$("regionSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
   if(lastData)run();}));
@@ -534,6 +572,7 @@ document.querySelectorAll(".tab").forEach(tb=>tb.addEventListener("click",()=>{
   if(lastData)redraw();}));
 window.addEventListener("resize",()=>{if(lastData)redraw();});
 
+applyTheme();
 init();
 </script>
 </body>
