@@ -68,6 +68,8 @@
   .cmode{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px;margin-right:4px}
   .cmode button{background:transparent;border:none;color:var(--muted);padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;border-radius:6px}
   .cmode button.on{background:var(--accent);color:#fff}
+  .ailabelbtn{background:linear-gradient(90deg,#5b8cff,#a855f7);color:#fff;border:none;border-radius:7px;
+    padding:4px 10px;font-size:11px;font-weight:800;cursor:pointer;margin-right:6px}
   .insights{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
   .insights:empty{display:none}
   .ins{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;white-space:nowrap}
@@ -417,7 +419,9 @@ function renderLegend(){
     sw=cats.map(c=>`<span class="chip"><span class="dot" style="background:${c.color}"></span>${lang==="ko"?c.ko:c.en}</span>`).join("");
   }else if(colorMode==="cluster"){
     const cl=(lastData&&lastData.clusters)||[];
-    sw=cl.length?cl.slice(0,8).map(c=>`<span class="chip"><span class="dot" style="background:${clusterColorMap[c.id]}"></span>${c.keywords.slice(0,2).join("·")}</span>`).join(""):`<span style="color:var(--muted)">${t("cm_cluster")}</span>`;
+    const labelOf=c=>(aiLabels&&aiLabels[c.id])?aiLabels[c.id]:c.keywords.slice(0,2).join("·");
+    sw=cl.length?(`<button class="ailabelbtn" id="aiLabelBtn">${t("ai_label_btn")}</button>`+
+      cl.slice(0,8).map(c=>`<span class="chip"><span class="dot" style="background:${clusterColorMap[c.id]}"></span>${labelOf(c)}</span>`).join("")):`<span style="color:var(--muted)">${t("cm_cluster")}</span>`;
   }else{
     sw=`<span class="chip"><span class="dot" style="background:#fb7185"></span>${t("sent_neg")}</span>
         <span class="chip"><span class="dot" style="background:#9aa3b5"></span>${t("sent_neu")}</span>
@@ -426,7 +430,18 @@ function renderLegend(){
   $("legend").innerHTML=ctrl+sw;
   $("legend").querySelectorAll(".cmode button").forEach(b=>b.addEventListener("click",()=>{
     colorMode=b.dataset.cm;localStorage.setItem("mt_colormode",colorMode);
-    renderLegend();if(lastData)redraw();}));
+    renderLegend();if(lastData)redraw();saveState();}));
+  const alb=$("aiLabelBtn");if(alb)alb.addEventListener("click",loadClusterLabels);
+}
+async function loadClusterLabels(){
+  if(!lastData||!(lastData.clusters||[]).length)return;
+  const btn=$("aiLabelBtn");if(btn){btn.disabled=true;btn.textContent="…";}
+  try{
+    const r=await fetch(API+"/api/ai/label-clusters?"+aiParams(),{method:"POST"});
+    if(r.ok){aiLabels=(await r.json()).labels||{};renderLegend();redraw();}
+    else{if(btn){btn.disabled=false;btn.textContent=t("ai_label_btn");}
+      setStatus(r.status===503?t("ai_disabled"):t("ai_err"));}
+  }catch(e){if(btn){btn.disabled=false;btn.textContent=t("ai_label_btn");}}
 }
 const selected=cls=>[...document.querySelectorAll("."+cls+":checked")].map(c=>c.value);
 
@@ -445,7 +460,7 @@ async function run(){
   $("run").disabled=true;$("netEmpty").style.display="none";setStatus(t("st_analyzing"),true);
   try{
     const data=await fetch(API+"/api/trends?"+trendParams()).then(r=>r.json());
-    lastData=data;renderControls();updateKPIs(data);renderInsights(data);
+    lastData=data;aiLabels=null;renderControls();updateKPIs(data);renderInsights(data);
     if(!data.kws||!data.kws.length){setStatus(t("st_nokw"));$("run").disabled=false;return;}
     redraw();
     const so=data.sentimentOverall||0;
@@ -573,7 +588,8 @@ function drawNetwork(data){
     const cats=Object.entries(d.catScore).map(([k,v])=>`${catLabel(k)} ${v}`).join(" · ");
     const arts=(d.articles||[]).map(a=>`· ${a.title}${a.publisher?` <span style="color:var(--muted)">(${a.publisher})</span>`:""}`).join("<br>");
     const sLbl=lang==="ko"?"감성":"sentiment";
-    showTip(`<b>${d.id}</b> — ${d.freq} · ${sLbl} ${sentArrow(d.sent||0)} ${sentWord(d.sent||0)}<br><span style="color:var(--muted)">${cats}</span><br><br>${arts}`,e);
+    const clab=(colorMode==="cluster"&&aiLabels&&aiLabels[d.cluster])?` · 🧩 ${aiLabels[d.cluster]}`:"";
+    showTip(`<b>${d.id}</b> — ${d.freq} · ${sLbl} ${sentArrow(d.sent||0)} ${sentWord(d.sent||0)}${clab}<br><span style="color:var(--muted)">${cats}</span><br><br>${arts}`,e);
     const adj=new Set();links.forEach(l=>{const s=l.source.id,tt=l.target.id;if(s===d.id)adj.add(tt);if(tt===d.id)adj.add(s);});
     link.attr("stroke-opacity",l=>l.source.id===d.id||l.target.id===d.id?.9:.04);
     node.style("opacity",n=>n.id===d.id||adj.has(n.id)?1:.18);})
