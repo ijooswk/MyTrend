@@ -6,9 +6,12 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import csv
+import io
+
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from .config import DISPLAY_CATEGORIES, REGIONS, get_settings
@@ -128,6 +131,48 @@ async def api_search(
         } for a in arts],
         "trend": trend,
     })
+
+
+@app.get("/api/export")
+async def api_export(
+    fmt: str = Query("csv", pattern="^(csv|json)$"),
+    categories: list[str] | None = Query(None),
+    regions: list[str] | None = Query(None),
+    sources: list[str] | None = Query(None),
+    hours: int = Query(24, ge=1, le=168),
+    min_freq: int = Query(1, ge=1, le=10),
+    max_kw: int = Query(200, ge=10, le=500),
+):
+    """현재 트렌드 키워드를 CSV/JSON 으로 내보내기(다른 분야·도구에서 재사용).
+
+    컬럼: keyword, frequency, category, sentiment, sentiment_label, connections, top_article
+    """
+    data = await get_trends(
+        state["db"], categories=categories, regions=regions, sources=sources,
+        hours=hours, min_freq=min_freq, max_kw=max_kw, live=False,
+    )
+    deg: dict[str, int] = {}
+    for l in data.get("links", []):
+        deg[l["source"]] = deg.get(l["source"], 0) + 1
+        deg[l["target"]] = deg.get(l["target"], 0) + 1
+    rows = [{
+        "keyword": k["id"], "frequency": k["freq"], "category": k["cat"],
+        "sentiment": k.get("sent", 0), "sentiment_label": k.get("sentLabel", "neu"),
+        "connections": deg.get(k["id"], 0),
+        "top_article": (k["articles"][0]["title"] if k.get("articles") else ""),
+    } for k in data.get("kws", [])]
+
+    if fmt == "json":
+        return JSONResponse({"generated_at": data.get("generated_at"),
+                             "window_hours": hours, "count": len(rows), "keywords": rows})
+    buf = io.StringIO()
+    cols = ["keyword", "frequency", "category", "sentiment", "sentiment_label",
+            "connections", "top_article"]
+    w = csv.DictWriter(buf, fieldnames=cols)
+    w.writeheader()
+    w.writerows(rows)
+    return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": "attachment; filename=mytrend_keywords.csv"})
 
 
 @app.get("/api/stats")
