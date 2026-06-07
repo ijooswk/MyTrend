@@ -11,6 +11,7 @@ from itertools import combinations
 from typing import Iterable
 
 from .config import CATEGORY_KO
+from .sentiment import score_text, label as sent_label
 
 # ── kiwipiepy 선택 로딩 ──
 _KIWI = None
@@ -155,16 +156,22 @@ def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict
     cat_score: dict[str, Counter] = defaultdict(Counter)
     co: Counter = Counter()
     kw_articles: dict[str, list] = defaultdict(list)
+    kw_sent: dict[str, list] = defaultdict(list)        # 키워드별 감성 점수 모음
+    cat_sent: dict[str, list] = defaultdict(list)       # 분야별 감성 점수 모음
 
     for a in articles:
         cat = g(a, "category")
-        toks = list(dict.fromkeys(tokenize(g(a, "title"))))  # 기사 내 중복 제거
+        title = g(a, "title")
+        s = score_text(title)
+        cat_sent[cat].append(s)
+        toks = list(dict.fromkeys(tokenize(title)))      # 기사 내 중복 제거
         for w in toks:
             freq[w] += 1
             cat_score[w][cat] += 1
+            kw_sent[w].append(s)
             if len(kw_articles[w]) < 5:
                 kw_articles[w].append({
-                    "title": g(a, "title"), "url": g(a, "url"),
+                    "title": title, "url": g(a, "url"),
                     "publisher": g(a, "publisher"), "category": cat,
                 })
         for x, y in combinations(sorted(toks), 2):
@@ -173,13 +180,18 @@ def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict
     ranked = [w for w, c in freq.most_common() if c >= min_freq][:max_kw]
     keep = set(ranked)
 
+    def avg(xs):
+        return round(sum(xs) / len(xs), 3) if xs else 0.0
+
     nodes = []
     for w in ranked:
         cs = cat_score[w]
         top_cat = cs.most_common(1)[0][0]
+        sent = avg(kw_sent[w])
         nodes.append({
             "id": w, "freq": freq[w], "cat": top_cat,
             "catScore": dict(cs), "articles": kw_articles[w],
+            "sent": sent, "sentLabel": sent_label(sent),
         })
 
     links = []
@@ -188,17 +200,20 @@ def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict
         if c >= co_min and x in keep and y in keep:
             links.append({"source": x, "target": y, "value": c})
 
-    # 분야별 집계
+    # 분야별 집계 (건수 + 평균 감성)
     by_cat = Counter(g(a, "category") for a in articles)
     cat_summary = [
-        {"id": cid, "ko": CATEGORY_KO.get(cid, cid), "count": by_cat.get(cid, 0)}
+        {"id": cid, "ko": CATEGORY_KO.get(cid, cid), "count": by_cat.get(cid, 0),
+         "sentiment": avg(cat_sent.get(cid, []))}
         for cid in CATEGORY_KO
     ]
+    overall = avg([s for xs in cat_sent.values() for s in xs])
 
     return {
         "kws": nodes,
         "links": links,
         "categorySummary": cat_summary,
         "articleCount": len(articles),
+        "sentimentOverall": overall,
         "kiwi": _kiwi() is not None,
     }
