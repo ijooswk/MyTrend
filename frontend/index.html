@@ -133,6 +133,8 @@
         <input type="range" id="minFreq" min="1" max="8" value="2"></div>
       <div class="field"><div><span data-i18n="s_maxkw"></span> <span class="val" id="maxKwVal">80</span></div>
         <input type="range" id="maxKw" min="20" max="200" step="10" value="80"></div>
+      <div class="field"><div><span data-i18n="s_count"></span> <span class="val" id="perFeedVal">50</span></div>
+        <input type="range" id="perFeed" min="10" max="100" step="5" value="50"></div>
     </div>
     <button class="run" id="run" data-i18n="btn_generate"></button>
     <button class="ghost" id="ingest" data-i18n="btn_ingest"></button>
@@ -173,6 +175,7 @@ const STR={
     h_search:"키워드 검색",search_ph:"키워드로 뉴스 검색…",btn_search:"검색",
     h_cats:"분야",h_sources:"데이터 소스",h_settings:"수집/표시 설정",
     s_hours:"시간 범위 (최근",unit_h:"시간)",s_minfreq:"최소 출현 빈도",s_maxkw:"표시 키워드 수",
+    s_count:"뉴스 수 (소스·피드별)",
     btn_generate:"트렌드 맵 생성 ▸",btn_ingest:"⟳ 지금 새로 수집",
     tab_net:"🕸 키워드 네트워크",tab_cloud:"☁️ 워드클라우드",tab_bubble:"🫧 분야별 버블",
     top_kw:"상위 키워드",empty_title:"아직 데이터가 없습니다",
@@ -192,6 +195,7 @@ const STR={
     h_search:"Keyword search",search_ph:"Search news by keyword…",btn_search:"Search",
     h_cats:"Categories",h_sources:"Data sources",h_settings:"Fetch / display",
     s_hours:"Time window (last",unit_h:"h)",s_minfreq:"Min frequency",s_maxkw:"Max keywords",
+    s_count:"News count (per source)",
     btn_generate:"Generate trend map ▸",btn_ingest:"⟳ Fetch now",
     tab_net:"🕸 Keyword network",tab_cloud:"☁️ Word cloud",tab_bubble:"🫧 Category bubbles",
     top_kw:"Top keywords",empty_title:"No data yet",
@@ -234,7 +238,7 @@ const showTip=(h,e)=>{tip.innerHTML=h;tip.style.display="block";moveTip(e);};
 const moveTip=e=>{tip.style.left=Math.min(e.clientX+14,innerWidth-330)+"px";tip.style.top=(e.clientY+14)+"px";};
 const hideTip=()=>tip.style.display="none";
 const bind=(id,vid)=>{const s=$(id),v=$(vid);s.addEventListener("input",()=>v.textContent=s.value);};
-bind("hours","hoursVal");bind("minFreq","minFreqVal");bind("maxKw","maxKwVal");
+bind("hours","hoursVal");bind("minFreq","minFreqVal");bind("maxKw","maxKwVal");bind("perFeed","perFeedVal");
 function setStatus(html,busy){$("status").innerHTML=(busy?'<span class="spin"></span>':"")+html;}
 
 //════════════════ 초기화 ════════════════
@@ -270,6 +274,7 @@ function trendParams(){
   regionIds().forEach(v=>p.append("regions",v));
   selected("src").forEach(v=>p.append("sources",v));
   p.set("hours",$("hours").value);p.set("min_freq",$("minFreq").value);p.set("max_kw",$("maxKw").value);
+  p.set("per_feed",$("perFeed").value);
   return p;
 }
 async function run(){
@@ -290,7 +295,7 @@ async function ingestNow(){
   $("ingest").disabled=true;setStatus(t("st_ingesting"),true);
   try{
     const p=new URLSearchParams();selected("cat").forEach(v=>p.append("categories",v));
-    regionIds().forEach(v=>p.append("regions",v));p.set("hours",$("hours").value);
+    regionIds().forEach(v=>p.append("regions",v));p.set("hours",$("hours").value);p.set("per_feed",$("perFeed").value);
     await fetch(API+"/api/ingest?"+p,{method:"POST"}).then(r=>r.json());
     await run();
   }catch(e){setStatus("❌ "+e.message);}
@@ -310,7 +315,7 @@ async function doSearch(q){
   q=(q||"").trim();if(!q)return;
   if(!searchKw.includes(q)){searchKw.unshift(q);searchKw=searchKw.slice(0,8);renderChips();}
   setStatus(t("st_searching",{q}),true);
-  const p=new URLSearchParams({q,hours:$("hours").value});regionIds().forEach(v=>p.append("regions",v));
+  const p=new URLSearchParams({q,hours:$("hours").value,count:$("perFeed").value});regionIds().forEach(v=>p.append("regions",v));
   try{
     const data=await fetch(API+"/api/search?"+p).then(r=>r.json());
     lastSearch=data;openResults(data);
@@ -332,7 +337,7 @@ function openResults(data){
 async function mergeSearch(){
   if(!lastSearch)return;
   const q=lastSearch.query;setStatus(t("st_searching",{q}),true);
-  const p=new URLSearchParams({q,hours:$("hours").value,store:"true"});regionIds().forEach(v=>p.append("regions",v));
+  const p=new URLSearchParams({q,hours:$("hours").value,count:$("perFeed").value,store:"true"});regionIds().forEach(v=>p.append("regions",v));
   try{
     const data=await fetch(API+"/api/search?"+p).then(r=>r.json());
     setStatus(t("st_merged",{q,n:data.count}));
