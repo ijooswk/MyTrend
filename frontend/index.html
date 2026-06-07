@@ -80,7 +80,7 @@
   .iconbtn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;
     width:34px;height:30px;cursor:pointer;font-size:15px}
   .pane{position:absolute;inset:0;display:none}.pane.active{display:block}
-  #netSvg,#bubbleSvg,#cloudSvg{width:100%;height:100%;display:block}
+  #netSvg,#bubbleSvg,#cloudSvg,#treeSvg{width:100%;height:100%;display:block}
   .status{padding:8px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);
     display:flex;align-items:center;gap:10px;min-height:34px;background:var(--panel)}
   .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -183,6 +183,7 @@
       <div class="tab active" data-v="net" data-i18n="tab_net"></div>
       <div class="tab" data-v="cloud" data-i18n="tab_cloud"></div>
       <div class="tab" data-v="bubble" data-i18n="tab_bubble"></div>
+      <div class="tab" data-v="tree" data-i18n="tab_tree"></div>
       <div class="tab" data-v="rising" data-i18n="tab_rising"></div>
     </div>
     <div class="legend" id="legend"></div>
@@ -194,6 +195,7 @@
       </div>
       <div class="pane" data-v="cloud"><svg id="cloudSvg"></svg></div>
       <div class="pane" data-v="bubble"><svg id="bubbleSvg"></svg></div>
+      <div class="pane" data-v="tree"><svg id="treeSvg"></svg></div>
       <div class="pane" data-v="rising"><div id="risingWrap"></div></div>
     </div>
     <div class="status" id="status"></div>
@@ -217,7 +219,7 @@ const STR={
     s_hours:"시간 범위 (최근",unit_h:"시간)",s_minfreq:"최소 출현 빈도",s_maxkw:"표시 키워드 수",
     s_count:"뉴스 수 (소스·피드별)",
     btn_generate:"트렌드 맵 생성 ▸",btn_ingest:"⟳ 지금 새로 수집",
-    tab_net:"🕸 키워드 네트워크",tab_cloud:"☁️ 워드클라우드",tab_bubble:"🫧 분야별 버블",tab_rising:"📈 급상승",
+    tab_net:"🕸 키워드 네트워크",tab_cloud:"☁️ 워드클라우드",tab_bubble:"🫧 분야별 버블",tab_tree:"🟩 트리맵",tab_rising:"📈 급상승",
     top_kw:"상위 키워드",empty_title:"아직 데이터가 없습니다",
     empty_desc:"설정을 고르고 ‘트렌드 맵 생성’을 누르세요.",
     btn_merge:"이 키워드를 트렌드 맵에 추가",btn_export:"⬇ CSV 내보내기",
@@ -241,7 +243,7 @@ const STR={
     s_hours:"Time window (last",unit_h:"h)",s_minfreq:"Min frequency",s_maxkw:"Max keywords",
     s_count:"News count (per source)",
     btn_generate:"Generate trend map ▸",btn_ingest:"⟳ Fetch now",
-    tab_net:"🕸 Keyword network",tab_cloud:"☁️ Word cloud",tab_bubble:"🫧 Category bubbles",tab_rising:"📈 Rising",
+    tab_net:"🕸 Keyword network",tab_cloud:"☁️ Word cloud",tab_bubble:"🫧 Category bubbles",tab_tree:"🟩 Treemap",tab_rising:"📈 Rising",
     top_kw:"Top keywords",empty_title:"No data yet",
     empty_desc:"Pick options and press ‘Generate trend map’.",
     btn_merge:"Add this keyword to the trend map",btn_export:"⬇ Export CSV",
@@ -445,7 +447,8 @@ async function mergeSearch(){
 //════════════════ 시각화 공통 ════════════════
 function redraw(){buildClusterColors(lastData);const v=document.querySelector(".tab.active").dataset.v;
   if(v==="net")drawNetwork(lastData);if(v==="cloud")drawCloud(lastData);
-  if(v==="bubble")drawBubble(lastData);if(v==="rising")drawRising(lastData);}
+  if(v==="bubble")drawBubble(lastData);if(v==="tree")drawTreemap(lastData);
+  if(v==="rising")drawRising(lastData);}
 const sentArrow=s=>s>0.05?'<span style="color:var(--ok)">▲</span>':s<-0.05?'<span style="color:var(--err)">▼</span>':'<span style="color:var(--muted)">–</span>';
 const sentWord=s=>s>0.05?t("sent_pos"):s<-0.05?t("sent_neg"):t("sent_neu");
 
@@ -582,6 +585,33 @@ function drawBubble(data){
     .style("display",d=>rOf(d)>15?null:"none").text(d=>d.id);
   g.on("mouseover",(e,d)=>showTip(`<b>${d.id}</b> — ${d.freq} · ${catLabel(d.cat)}`,e))
    .on("mousemove",moveTip).on("mouseout",hideTip);
+}
+
+//──────────── 트리맵 ────────────
+function drawTreemap(data){
+  const svg=d3.select("#treeSvg");svg.selectAll("*").remove();
+  const el=$("treeSvg"),W=el.clientWidth,H=el.clientHeight;
+  if(!data.kws.length)return;
+  const byCat=d3.group(data.kws,d=>d.cat);
+  const root={name:"root",children:[...byCat].map(([cat,kws])=>
+    ({name:cat,cat,children:kws.map(k=>({name:k.id,value:k.freq,d:k}))}))};
+  const h=d3.hierarchy(root).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
+  d3.treemap().size([W,H]).paddingInner(2).paddingTop(20).paddingOuter(2).round(true)(h);
+  const g=svg.append("g");
+  // 분야 배경 라벨
+  g.append("g").selectAll("text").data(h.children||[]).join("text")
+    .attr("x",d=>d.x0+5).attr("y",d=>d.y0+14).attr("fill",d=>colorOf(d.data.cat))
+    .attr("font-weight",800).attr("font-size",12).text(d=>catLabel(d.data.cat));
+  const cell=g.selectAll("g.cell").data(h.leaves()).join("g").attr("class","cell")
+    .attr("transform",d=>`translate(${d.x0},${d.y0})`).style("cursor","pointer");
+  cell.append("rect").attr("width",d=>d.x1-d.x0).attr("height",d=>d.y1-d.y0)
+    .attr("fill",d=>nodeColor(d.data.d)).attr("fill-opacity",.86).attr("stroke","#0b0e16").attr("rx",3);
+  cell.append("text").attr("x",5).attr("y",15).attr("fill","#0b0d13").attr("font-weight",700)
+    .attr("font-size",11).text(d=>d.data.name)
+    .each(function(d){if(d.x1-d.x0<30||d.y1-d.y0<18)d3.select(this).style("display","none");});
+  cell.on("mouseover",(e,d)=>showTip(`<b>${d.data.name}</b> — ${d.data.value} · ${catLabel(d.data.d.cat)}`,e))
+    .on("mousemove",moveTip).on("mouseout",hideTip)
+    .on("click",(e,d)=>{if(window.openKeyword)openKeyword(d.data.name);});
 }
 
 //════════════════ 이벤트 ════════════════
