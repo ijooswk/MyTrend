@@ -11,10 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .config import CATEGORIES, REGIONS, get_settings
+from .config import DISPLAY_CATEGORIES, REGIONS, get_settings
 from .db import DB
 from .ingest import run_ingest
+from .nlp import build_trends
 from .scheduler import IngestScheduler
+from .search import search_news
 from .sources import all_sources
 from .trends import get_trends, clear_cache
 
@@ -52,7 +54,7 @@ def api_config():
         "requires_key": s.requires_key, "enabled": s.enabled(),
     } for s in all_sources()]
     return {
-        "categories": CATEGORIES,
+        "categories": DISPLAY_CATEGORIES,
         "regions": REGIONS,
         "sources": sources,
         "settings": {
@@ -91,6 +93,37 @@ async def api_ingest(
                               regions=regions, hours=hours)
     clear_cache()
     return result
+
+
+@app.get("/api/search")
+async def api_search(
+    q: str = Query(..., min_length=1),
+    regions: list[str] | None = Query(None),
+    hours: int = Query(48, ge=1, le=168),
+    store: bool = Query(False),
+    min_freq: int = Query(1, ge=1, le=10),
+    max_kw: int = Query(60, ge=10, le=300),
+):
+    """키워드로 관련 뉴스를 실시간 검색.
+
+    - 항상 기사 목록(articles)과 미니 트렌드(trend)를 반환.
+    - store=true 면 결과를 DB에 적재해 전체 트렌드 맵에 병합되도록 한다.
+    """
+    arts = await search_news(q, regions=regions, hours=hours)
+    if store and arts:
+        state["db"].upsert_many(arts)
+        clear_cache()
+    trend = build_trends(arts, min_freq=min_freq, max_kw=max_kw)
+    return JSONResponse({
+        "query": q,
+        "count": len(arts),
+        "stored": bool(store and arts),
+        "articles": [{
+            "title": a.title, "url": a.url, "publisher": a.publisher,
+            "region": a.region, "source": a.source, "published_at": a.published_at,
+        } for a in arts],
+        "trend": trend,
+    })
 
 
 @app.get("/api/stats")

@@ -34,31 +34,36 @@ def get_settings() -> Settings:
 
 
 # ── 분야 (canonical category) ──
-# id: 내부코드, ko: 한글, color: 프론트 색, queries: 검색형 소스용 질의(ko/en)
+# id: 내부코드, ko/en: 라벨, color: 프론트 색, queries: 검색형 소스용 질의(ko/en)
 CATEGORIES = [
-    {"id": "BUSINESS",   "ko": "경제", "color": "#34d399",
+    {"id": "BUSINESS",   "ko": "경제", "en": "Economy", "color": "#34d399", "selectable": True,
      "q_ko": "경제 OR 금융 OR 증시 OR 산업 OR 부동산",
      "q_en": "economy OR finance OR markets OR business"},
-    {"id": "NATION",     "ko": "사회", "color": "#f59e0b",
+    {"id": "NATION",     "ko": "사회", "en": "Society", "color": "#f59e0b", "selectable": True,
      "q_ko": "사회 OR 사건 OR 사고 OR 정책 OR 노동",
      "q_en": "society OR crime OR policy OR labor"},
-    {"id": "SCIENCE",    "ko": "과학", "color": "#a78bfa",
+    {"id": "SCIENCE",    "ko": "과학", "en": "Science", "color": "#a78bfa", "selectable": True,
      "q_ko": "과학 OR 연구 OR 우주 OR 기후 OR 생명",
      "q_en": "science OR research OR space OR climate"},
-    {"id": "TECHNOLOGY", "ko": "테크", "color": "#38bdf8",
+    {"id": "TECHNOLOGY", "ko": "테크", "en": "Tech", "color": "#38bdf8", "selectable": True,
      "q_ko": "기술 OR IT OR 인공지능 OR 반도체 OR 스타트업",
      "q_en": "technology OR AI OR semiconductor OR startup"},
-    {"id": "WORLD",      "ko": "세계", "color": "#fb7185",
+    {"id": "WORLD",      "ko": "세계", "en": "World", "color": "#fb7185", "selectable": True,
      "q_ko": "국제 OR 세계 OR 외교",
      "q_en": "world OR international OR diplomacy"},
 ]
+# 사용자 키워드 검색으로 들어온 기사용 표시 카테고리(선택 불가, 표시 전용)
+SEARCH_CATEGORY = {"id": "SEARCH", "ko": "검색", "en": "Search",
+                   "color": "#e879f9", "selectable": False}
+DISPLAY_CATEGORIES = CATEGORIES + [SEARCH_CATEGORY]
+
 CATEGORY_IDS = [c["id"] for c in CATEGORIES]
-CATEGORY_KO = {c["id"]: c["ko"] for c in CATEGORIES}
+CATEGORY_KO = {c["id"]: c["ko"] for c in DISPLAY_CATEGORIES}
 
 # ── 지역 ──
 REGIONS = [
-    {"id": "KR", "ko": "한국",   "hl": "ko",    "gl": "KR", "ceid": "KR:ko", "lang": "ko"},
-    {"id": "US", "ko": "글로벌", "hl": "en-US", "gl": "US", "ceid": "US:en", "lang": "en"},
+    {"id": "KR", "ko": "한국",   "en": "Korea",  "hl": "ko",    "gl": "KR", "ceid": "KR:ko", "lang": "ko"},
+    {"id": "US", "ko": "글로벌", "en": "Global", "hl": "en-US", "gl": "US", "ceid": "US:en", "lang": "en"},
 ]
 REGION_IDS = [r["id"] for r in REGIONS]
 REGION_BY_ID = {r["id"]: r for r in REGIONS}
