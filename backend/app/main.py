@@ -21,6 +21,7 @@ from .nlp import build_trends
 from .scheduler import IngestScheduler
 from .search import search_news
 from .sources import all_sources
+from .timeline import build_timeline
 from .trends import get_trends, clear_cache
 
 logging.basicConfig(level=logging.INFO,
@@ -131,6 +132,24 @@ async def api_search(
         } for a in arts],
         "trend": trend,
     })
+
+
+@app.get("/api/timeline")
+def api_timeline(
+    keyword: str | None = Query(None),
+    categories: list[str] | None = Query(None),
+    regions: list[str] | None = Query(None),
+    sources: list[str] | None = Query(None),
+    hours: int = Query(24, ge=2, le=168),
+    buckets: int = Query(24, ge=4, le=96),
+):
+    """시간버킷별 키워드 빈도 시계열. keyword 지정 시 해당 키워드만."""
+    import time as _t
+    since = _t.time() - hours * 3600
+    arts = state["db"].query(since=since, categories=categories,
+                             regions=regions, sources=sources)
+    return JSONResponse(build_timeline(arts, hours=hours, buckets=buckets,
+                                       keyword=keyword))
 
 
 @app.get("/api/export")

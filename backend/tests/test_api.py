@@ -45,3 +45,6 @@ def test_endpoints_smoke():
         # 내보내기 CSV 200
         r = c.get("/api/export", params={"fmt": "csv", "live": "false"})
         assert r.status_code == 200 and "keyword" in r.text
+        # 타임라인 200 + 스키마
+        tl = c.get("/api/timeline", params={"hours": 24, "buckets": 12}).json()
+        assert len(tl["buckets"]) == 12 and "series" in tl and "total" in tl
