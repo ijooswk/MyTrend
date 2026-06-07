@@ -253,8 +253,9 @@ async function init(){
 }
 function renderControls(){
   const sel=CATS.filter(c=>c.selectable!==false);
+  const DEFAULT_CATS=["BUSINESS","NATION","SCIENCE","TECHNOLOGY"];
   $("cats").innerHTML=sel.map(c=>{
-    const def=c.id!=="WORLD",L=lang==="ko"?c.ko:c.en;
+    const def=DEFAULT_CATS.includes(c.id),L=lang==="ko"?c.ko:c.en;
     return `<label class="row"><span class="chip"><span class="dot" style="background:${c.color}"></span>${L}</span>
       <input type="checkbox" class="cat" value="${c.id}" ${def?"checked":""}></label>`;}).join("");
   $("sources").innerHTML=SOURCES.map(s=>{

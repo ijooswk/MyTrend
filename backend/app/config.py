@@ -51,6 +51,15 @@ CATEGORIES = [
     {"id": "WORLD",      "ko": "세계", "en": "World", "color": "#fb7185", "selectable": True,
      "q_ko": "국제 OR 세계 OR 외교",
      "q_en": "world OR international OR diplomacy"},
+    {"id": "HEALTH",     "ko": "건강", "en": "Health", "color": "#2dd4bf", "selectable": True,
+     "q_ko": "건강 OR 의료 OR 질병 OR 보건 OR 제약",
+     "q_en": "health OR medical OR disease OR medicine"},
+    {"id": "SPORTS",     "ko": "스포츠", "en": "Sports", "color": "#facc15", "selectable": True,
+     "q_ko": "스포츠 OR 축구 OR 야구 OR 올림픽",
+     "q_en": "sports OR football OR soccer OR baseball"},
+    {"id": "ENTERTAINMENT", "ko": "연예", "en": "Culture", "color": "#f472b6", "selectable": True,
+     "q_ko": "연예 OR 영화 OR 음악 OR 드라마 OR 문화",
+     "q_en": "entertainment OR movie OR music OR culture"},
 ]
 # 사용자 키워드 검색으로 들어온 기사용 표시 카테고리(선택 불가, 표시 전용)
 SEARCH_CATEGORY = {"id": "SEARCH", "ko": "검색", "en": "Search",
@@ -75,6 +84,9 @@ GOOGLE_TOPICS = {
     "SCIENCE": "SCIENCE",
     "TECHNOLOGY": "TECHNOLOGY",
     "WORLD": "WORLD",
+    "HEALTH": "HEALTH",
+    "SPORTS": "SPORTS",
+    "ENTERTAINMENT": "ENTERTAINMENT",
 }
 
 # ── 일반 RSS 피드(키 불필요). 필요 시 자유롭게 추가/수정 ──
@@ -97,4 +109,8 @@ GENERIC_FEEDS = [
     ("https://www.hani.co.kr/rss/economy/",  "BUSINESS", "KR", "한겨레"),
     ("https://www.hani.co.kr/rss/society/",  "NATION",   "KR", "한겨레"),
     ("https://www.hani.co.kr/rss/science/",  "SCIENCE",  "KR", "한겨레"),
+    # 확장 분야 (BBC)
+    ("https://feeds.bbci.co.uk/news/health/rss.xml",                 "HEALTH",        "US", "BBC"),
+    ("https://feeds.bbci.co.uk/sport/rss.xml",                       "SPORTS",        "US", "BBC"),
+    ("https://feeds.bbci.co.uk/news/entertainment_and_arts/rss.xml", "ENTERTAINMENT", "US", "BBC"),
 ]
