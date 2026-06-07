@@ -67,6 +67,9 @@
   .cmode{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px;margin-right:4px}
   .cmode button{background:transparent;border:none;color:var(--muted);padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;border-radius:6px}
   .cmode button.on{background:var(--accent);color:#fff}
+  .insights{display:flex;gap:8px;flex-wrap:wrap;padding:8px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .insights:empty{display:none}
+  .ins{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;white-space:nowrap}
   .view{flex:1;position:relative;overflow:hidden;background:var(--stage)}
   /* 헤더 KPI 카드 */
   .kpis{display:flex;gap:10px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
@@ -198,6 +201,7 @@
       <div class="tab" data-v="rising" data-i18n="tab_rising"></div>
     </div>
     <div class="legend" id="legend"></div>
+    <div class="insights" id="insights"></div>
     <div class="view">
       <div class="pane active" data-v="net">
         <svg id="netSvg"></svg>
@@ -243,6 +247,8 @@ const STR={
     kpi_articles:"기사",kpi_keywords:"키워드",kpi_clusters:"토픽군집",kpi_sources:"소스",kpi_sentiment:"감성",
     cm_cat:"분야",cm_cluster:"군집",cm_sent:"감성",
     d_freq:"빈도",d_sentiment:"감성",d_trend:"시간 추이",d_related:"연관 키워드",d_articles:"관련 기사",
+    ins_busiest:"📊 최다 분야 {cat} · {count}건",ins_rising:"🚀 급상승 {kw} ×{score}",
+    ins_hub:"🔗 허브 {kw} · 연결 {deg}",ins_sentiment:"🙂 전반 감성 {label}",ins_cluster:"🧩 핵심 토픽 {kws}",
     res_title:"‘{q}’ 관련 뉴스",
     st_ready:"준비 완료 — 트렌드 맵을 생성하세요.",st_analyzing:"트렌드 분석 중…",
     st_searching:"‘{q}’ 검색 중…",st_ingesting:"전 소스에서 새로 수집 중…",
@@ -268,6 +274,8 @@ const STR={
     kpi_articles:"Articles",kpi_keywords:"Keywords",kpi_clusters:"Topics",kpi_sources:"Sources",kpi_sentiment:"Sentiment",
     cm_cat:"Field",cm_cluster:"Cluster",cm_sent:"Sentiment",
     d_freq:"Frequency",d_sentiment:"Sentiment",d_trend:"Trend",d_related:"Related",d_articles:"Articles",
+    ins_busiest:"📊 Top field {cat} · {count}",ins_rising:"🚀 Rising {kw} ×{score}",
+    ins_hub:"🔗 Hub {kw} · {deg} links",ins_sentiment:"🙂 Overall sentiment {label}",ins_cluster:"🧩 Lead topic {kws}",
     res_title:"News for ‘{q}’",
     st_ready:"Ready — generate the trend map.",st_analyzing:"Analyzing trends…",
     st_searching:"Searching ‘{q}’…",st_ingesting:"Fetching from all sources…",
@@ -290,7 +298,7 @@ function applyLang(){
   document.querySelectorAll(".langtog button").forEach(b=>b.classList.toggle("on",b.dataset.lang===lang));
   if(CFG)renderControls();
   renderChips();
-  if(lastData){redraw();}
+  if(lastData){renderInsights(lastData);redraw();}
   if(!lastData)setStatus(t("st_ready"));
 }
 
@@ -322,6 +330,18 @@ const hideTip=()=>tip.style.display="none";
 const bind=(id,vid)=>{const s=$(id),v=$(vid);s.addEventListener("input",()=>v.textContent=s.value);};
 bind("hours","hoursVal");bind("minFreq","minFreqVal");bind("maxKw","maxKwVal");bind("perFeed","perFeedVal");
 function setStatus(html,busy){$("status").innerHTML=(busy?'<span class="spin"></span>':"")+html;}
+function renderInsights(data){
+  const box=$("insights");if(!data||!data.insights){box.innerHTML="";return;}
+  const html=data.insights.map(x=>{
+    if(x.type==="busiest_category")return t("ins_busiest",{cat:catLabel(x.cat),count:x.count});
+    if(x.type==="top_rising")return t("ins_rising",{kw:x.kw,score:x.score})+(x.isNew?` <b style="color:var(--search)">NEW</b>`:"");
+    if(x.type==="hub")return t("ins_hub",{kw:x.kw,deg:x.degree});
+    if(x.type==="sentiment")return t("ins_sentiment",{label:sentWord(x.value)})+` ${sentArrow(x.value)}`;
+    if(x.type==="top_cluster")return t("ins_cluster",{kws:x.keywords.slice(0,3).join("·")});
+    return "";
+  }).filter(Boolean).map(s=>`<span class="ins">${s}</span>`).join("");
+  box.innerHTML=html;
+}
 function updateKPIs(data){
   $("kpiArticles").textContent=data?data.articleCount:"–";
   $("kpiKeywords").textContent=data?data.kws.length:"–";
@@ -394,7 +414,7 @@ async function run(){
   $("run").disabled=true;$("netEmpty").style.display="none";setStatus(t("st_analyzing"),true);
   try{
     const data=await fetch(API+"/api/trends?"+trendParams()).then(r=>r.json());
-    lastData=data;renderControls();updateKPIs(data);
+    lastData=data;renderControls();updateKPIs(data);renderInsights(data);
     if(!data.kws||!data.kws.length){setStatus(t("st_nokw"));$("run").disabled=false;return;}
     redraw();
     const so=data.sentimentOverall||0;
