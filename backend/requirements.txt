@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.27
+feedparser>=6.0
+apscheduler>=3.10
+python-dotenv>=1.0
+pydantic>=2.6
+pydantic-settings>=2.2
+# 한국어 형태소 분석 (선택). 미설치 시 휴리스틱 토크나이저로 자동 폴백.
+kiwipiepy>=0.17
