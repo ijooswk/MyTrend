@@ -63,7 +63,10 @@
   .tab{padding:9px 16px;font-size:13px;color:var(--muted);cursor:pointer;border-radius:8px 8px 0 0;
     border:1px solid transparent;border-bottom:none;font-weight:700}
   .tab.active{color:var(--txt);background:var(--panel);border-color:var(--line)}
-  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:8px 16px;font-size:12px;border-bottom:1px solid var(--line)}
+  .legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 16px;font-size:12px;border-bottom:1px solid var(--line)}
+  .cmode{display:inline-flex;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:2px;margin-right:4px}
+  .cmode button{background:transparent;border:none;color:var(--muted);padding:4px 10px;font-size:12px;font-weight:700;cursor:pointer;border-radius:6px}
+  .cmode button.on{background:var(--accent);color:#fff}
   .view{flex:1;position:relative;overflow:hidden;background:var(--stage)}
   /* 헤더 KPI 카드 */
   .kpis{display:flex;gap:10px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
@@ -221,6 +224,7 @@ const STR={
     rising_new:"NEW",rising_empty:"급상승 키워드가 충분치 않습니다. 데이터가 더 쌓이면 표시됩니다.",
     sent_pos:"긍정",sent_neg:"부정",sent_neu:"중립",
     kpi_articles:"기사",kpi_keywords:"키워드",kpi_clusters:"토픽군집",kpi_sources:"소스",kpi_sentiment:"감성",
+    cm_cat:"분야",cm_cluster:"군집",cm_sent:"감성",
     res_title:"‘{q}’ 관련 뉴스",
     st_ready:"준비 완료 — 트렌드 맵을 생성하세요.",st_analyzing:"트렌드 분석 중…",
     st_searching:"‘{q}’ 검색 중…",st_ingesting:"전 소스에서 새로 수집 중…",
@@ -244,6 +248,7 @@ const STR={
     rising_new:"NEW",rising_empty:"Not enough data for rising keywords yet.",
     sent_pos:"positive",sent_neg:"negative",sent_neu:"neutral",
     kpi_articles:"Articles",kpi_keywords:"Keywords",kpi_clusters:"Topics",kpi_sources:"Sources",kpi_sentiment:"Sentiment",
+    cm_cat:"Field",cm_cluster:"Cluster",cm_sent:"Sentiment",
     res_title:"News for ‘{q}’",
     st_ready:"Ready — generate the trend map.",st_analyzing:"Analyzing trends…",
     st_searching:"Searching ‘{q}’…",st_ingesting:"Fetching from all sources…",
@@ -277,6 +282,18 @@ let CFG=null,CATS=[],REGIONS=[],SOURCES=[];
 let region="ALL",lastData=null,searchKw=[],lastSearch=null;
 const colorOf=id=>(CATS.find(c=>c.id===id)||{color:"#94a0b8"}).color;
 const catLabel=id=>{const c=CATS.find(x=>x.id===id);return c?(lang==="ko"?c.ko:c.en):id;};
+// 색상 모드: 분야(cat) / 토픽군집(cluster) / 감성(sentiment)
+const CLUSTER_COLORS=["#5b8cff","#34d399","#f59e0b","#a78bfa","#fb7185","#38bdf8","#facc15","#2dd4bf","#f472b6","#c084fc","#fb923c","#4ade80"];
+let colorMode=localStorage.getItem("mt_colormode")||"cat";
+let clusterColorMap={};
+function buildClusterColors(data){clusterColorMap={};(data&&data.clusters||[]).forEach((cl,i)=>{clusterColorMap[cl.id]=CLUSTER_COLORS[i%CLUSTER_COLORS.length];});}
+function sentColor(s){const g="#9aa3b5";
+  if(s>0.05)return d3.interpolateRgb(g,"#34d399")(Math.min(1,s));
+  if(s<-0.05)return d3.interpolateRgb(g,"#fb7185")(Math.min(1,-s));return g;}
+function nodeColor(d){
+  if(colorMode==="cluster")return clusterColorMap[d.cluster]||"#6b7280";
+  if(colorMode==="sentiment")return sentColor(d.sent||0);
+  return colorOf(d.cat);}
 const regionIds=()=>region==="ALL"?["KR","US"]:[region];
 
 const tip=$("tip");
@@ -317,9 +334,29 @@ function renderControls(){
     const badge=s.enabled?`<span class="badge on">●</span>`:`<span class="badge off">${s.requires_key?"key":"off"}</span>`;
     return `<label class="row ${s.enabled?"":"dim"}"><span>${s.label} ${badge}</span>
       <input type="checkbox" class="src" value="${s.name}" ${s.enabled?"checked":""} ${s.enabled?"":"disabled"}></label>`;}).join("");
-  const legendCats=CATS.filter(c=>c.selectable!==false||lastData?.kws?.some(k=>k.cat===c.id));
-  $("legend").innerHTML=legendCats.map(c=>
-    `<span class="chip"><span class="dot" style="background:${c.color}"></span>${lang==="ko"?c.ko:c.en}</span>`).join("");
+  renderLegend();
+}
+function renderLegend(){
+  buildClusterColors(lastData);
+  const modes=[["cat",t("cm_cat")],["cluster",t("cm_cluster")],["sentiment",t("cm_sent")]];
+  const ctrl=`<span class="cmode">${modes.map(([m,l])=>
+    `<button data-cm="${m}" class="${colorMode===m?"on":""}">${l}</button>`).join("")}</span>`;
+  let sw="";
+  if(colorMode==="cat"){
+    const cats=CATS.filter(c=>c.selectable!==false||lastData?.kws?.some(k=>k.cat===c.id));
+    sw=cats.map(c=>`<span class="chip"><span class="dot" style="background:${c.color}"></span>${lang==="ko"?c.ko:c.en}</span>`).join("");
+  }else if(colorMode==="cluster"){
+    const cl=(lastData&&lastData.clusters)||[];
+    sw=cl.length?cl.slice(0,8).map(c=>`<span class="chip"><span class="dot" style="background:${clusterColorMap[c.id]}"></span>${c.keywords.slice(0,2).join("·")}</span>`).join(""):`<span style="color:var(--muted)">${t("cm_cluster")}</span>`;
+  }else{
+    sw=`<span class="chip"><span class="dot" style="background:#fb7185"></span>${t("sent_neg")}</span>
+        <span class="chip"><span class="dot" style="background:#9aa3b5"></span>${t("sent_neu")}</span>
+        <span class="chip"><span class="dot" style="background:#34d399"></span>${t("sent_pos")}</span>`;
+  }
+  $("legend").innerHTML=ctrl+sw;
+  $("legend").querySelectorAll(".cmode button").forEach(b=>b.addEventListener("click",()=>{
+    colorMode=b.dataset.cm;localStorage.setItem("mt_colormode",colorMode);
+    renderLegend();if(lastData)redraw();}));
 }
 const selected=cls=>[...document.querySelectorAll("."+cls+":checked")].map(c=>c.value);
 
@@ -406,7 +443,7 @@ async function mergeSearch(){
 }
 
 //════════════════ 시각화 공통 ════════════════
-function redraw(){const v=document.querySelector(".tab.active").dataset.v;
+function redraw(){buildClusterColors(lastData);const v=document.querySelector(".tab.active").dataset.v;
   if(v==="net")drawNetwork(lastData);if(v==="cloud")drawCloud(lastData);
   if(v==="bubble")drawBubble(lastData);if(v==="rising")drawRising(lastData);}
 const sentArrow=s=>s>0.05?'<span style="color:var(--ok)">▲</span>':s<-0.05?'<span style="color:var(--err)">▼</span>':'<span style="color:var(--muted)">–</span>';
@@ -448,12 +485,13 @@ function drawNetwork(data){
     .force("charge",d3.forceManyBody().strength(-200))
     .force("center",d3.forceCenter(W/2,H/2))
     .force("collide",d3.forceCollide(d=>rOf(d)+12));
+  const nById=Object.fromEntries(nodes.map(n=>[n.id,n]));
   const link=g.append("g").selectAll("path").data(links).join("path")
     .attr("fill","none").attr("stroke-linecap","round")
-    .attr("stroke",d=>colorOf((nodes.find(n=>n.id===(d.source.id||d.source))||{}).cat))
+    .attr("stroke",d=>nodeColor(nById[d.source.id||d.source]||{}))
     .attr("stroke-opacity",.22).attr("stroke-width",d=>1+Math.sqrt(d.value)*1.1);
   const node=g.append("g").selectAll("g").data(nodes).join("g").style("cursor","pointer").call(drag(netSim));
-  node.append("circle").attr("r",rOf).attr("fill",d=>colorOf(d.cat))
+  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d))
     .attr("stroke","#0b0e16").attr("stroke-width",1.5).attr("filter","url(#glow)").attr("fill-opacity",.92);
   node.append("text").attr("text-anchor","middle").attr("dy",d=>-rOf(d)-5)
     .attr("fill","#eef1f8").attr("font-size",d=>d.freq>=mx*.5?13:11).attr("font-weight",700)
@@ -498,7 +536,7 @@ function drawCloud(data){
   const mx=d3.max(data.kws,d=>d.freq)||1,mn=d3.min(data.kws,d=>d.freq)||1;
   const sc=d3.scaleSqrt().domain([mn,mx]).range([14,Math.min(96,W/9)]);
   const op=d3.scaleLinear().domain([mn,mx]).range([.6,1]);
-  const words=data.kws.map(d=>({text:d.id,size:sc(d.freq),cat:d.cat,freq:d.freq,op:op(d.freq)}));
+  const words=data.kws.map(d=>({text:d.id,size:sc(d.freq),cat:d.cat,cluster:d.cluster,sent:d.sent,freq:d.freq,op:op(d.freq)}));
   const angles=[0,0,0,0,90,-30,30];
   d3.layout.cloud().size([W,H]).words(words).padding(2.4).font("Apple SD Gothic Neo")
     .rotate(()=>angles[Math.floor(Math.random()*angles.length)]).fontSize(d=>d.size)
@@ -506,7 +544,7 @@ function drawCloud(data){
       const g=svg.append("g").attr("transform",`translate(${W/2},${H/2})`);
       g.selectAll("text").data(ws).join("text")
         .style("font-family","Apple SD Gothic Neo,sans-serif").style("font-weight",800).style("cursor","pointer")
-        .style("fill",d=>colorOf(d.cat)).style("fill-opacity",d=>d.op).attr("filter","url(#soft)")
+        .style("fill",d=>nodeColor(d)).style("fill-opacity",d=>d.op).attr("filter","url(#soft)")
         .attr("text-anchor","middle").attr("font-size",d=>d.size)
         .attr("transform",d=>`translate(${d.x},${d.y})rotate(${d.rotate})`).text(d=>d.text)
         .style("transition","fill-opacity .15s")
@@ -538,7 +576,7 @@ function drawBubble(data){
   for(let i=0;i<260;i++)sim.tick();
   const g=svg.append("g").selectAll("g").data(nodes).join("g").style("cursor","pointer");
   g.append("circle").attr("cx",d=>d.x).attr("cy",d=>d.y).attr("r",rOf)
-    .attr("fill",d=>colorOf(d.cat)).attr("fill-opacity",.85).attr("stroke","#0b0e16").attr("filter","url(#glow)");
+    .attr("fill",d=>nodeColor(d)).attr("fill-opacity",.85).attr("stroke","#0b0e16").attr("filter","url(#glow)");
   g.append("text").attr("x",d=>d.x).attr("y",d=>d.y).attr("dy",".32em").attr("text-anchor","middle")
     .attr("fill","#0b0d13").attr("font-weight",800).attr("font-size",d=>Math.min(13,rOf(d)*.7))
     .style("display",d=>rOf(d)>15?null:"none").text(d=>d.id);
