@@ -50,6 +50,7 @@
   button.run:disabled{opacity:.55;cursor:not-allowed}
   button.ghost{width:100%;background:var(--panel2);color:var(--txt);border:1px solid var(--line);
     border-radius:9px;padding:9px;font-size:13px;cursor:pointer;margin-top:8px}
+  button.ghost.on{border-color:var(--ok);color:var(--ok);box-shadow:0 0 0 1px var(--ok) inset}
   .searchbox{display:flex;gap:6px}
   .searchbox input{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:8px;
     padding:8px 10px;color:var(--txt);font-size:13px;font-family:inherit}
@@ -189,6 +190,7 @@
     </div>
     <button class="run" id="run" data-i18n="btn_generate"></button>
     <button class="ghost" id="ingest" data-i18n="btn_ingest"></button>
+    <button class="ghost" id="live" data-i18n="btn_live"></button>
     <button class="ghost" id="export" data-i18n="btn_export"></button>
   </aside>
 
@@ -237,7 +239,7 @@ const STR={
     h_cats:"분야",h_sources:"데이터 소스",h_settings:"수집/표시 설정",
     s_hours:"시간 범위 (최근",unit_h:"시간)",s_minfreq:"최소 출현 빈도",s_maxkw:"표시 키워드 수",
     s_count:"뉴스 수 (소스·피드별)",
-    btn_generate:"트렌드 맵 생성 ▸",btn_ingest:"⟳ 지금 새로 수집",
+    btn_generate:"트렌드 맵 생성 ▸",btn_ingest:"⟳ 지금 새로 수집",btn_live:"🔴 라이브 자동갱신",
     tab_net:"🕸 키워드 네트워크",tab_cloud:"☁️ 워드클라우드",tab_bubble:"🫧 분야별 버블",tab_tree:"🟩 트리맵",tab_rising:"📈 급상승",
     top_kw:"상위 키워드",empty_title:"아직 데이터가 없습니다",
     empty_desc:"설정을 고르고 ‘트렌드 맵 생성’을 누르세요.",
@@ -264,7 +266,7 @@ const STR={
     h_cats:"Categories",h_sources:"Data sources",h_settings:"Fetch / display",
     s_hours:"Time window (last",unit_h:"h)",s_minfreq:"Min frequency",s_maxkw:"Max keywords",
     s_count:"News count (per source)",
-    btn_generate:"Generate trend map ▸",btn_ingest:"⟳ Fetch now",
+    btn_generate:"Generate trend map ▸",btn_ingest:"⟳ Fetch now",btn_live:"🔴 Live auto-refresh",
     tab_net:"🕸 Keyword network",tab_cloud:"☁️ Word cloud",tab_bubble:"🫧 Category bubbles",tab_tree:"🟩 Treemap",tab_rising:"📈 Rising",
     top_kw:"Top keywords",empty_title:"No data yet",
     empty_desc:"Pick options and press ‘Generate trend map’.",
@@ -286,8 +288,9 @@ const STR={
     src_active:"{a}/{b} sources active",cache:{hit:"cache",miss:"DB",backfill:"live-fetch"},
     conn_err:"❌ Cannot reach backend. Start the server first.",no_results:"No results."},
 };
-let lang=localStorage.getItem("mt_lang")||"ko";
-let theme=localStorage.getItem("mt_theme")||"dark";
+const HASH=new URLSearchParams(location.hash.slice(1));
+let lang=HASH.get("lang")||localStorage.getItem("mt_lang")||"ko";
+let theme=HASH.get("th")||localStorage.getItem("mt_theme")||"dark";
 function applyTheme(){document.documentElement.dataset.theme=theme;
   const b=document.getElementById("themeBtn");if(b)b.textContent=theme==="dark"?"🌙":"☀️";}
 const t=(k,vars={})=>{let s=STR[lang][k]??k;for(const v in vars)s=s.replaceAll("{"+v+"}",vars[v]);return s;};
@@ -306,12 +309,13 @@ function applyLang(){
 const API=location.origin.startsWith("http")?"":"http://localhost:8000";
 const $=id=>document.getElementById(id);
 let CFG=null,CATS=[],REGIONS=[],SOURCES=[];
-let region="ALL",lastData=null,searchKw=[],lastSearch=null;
+let region=HASH.get("r")||"ALL",lastData=null,searchKw=[],lastSearch=null;
+let liveOn=false,liveTimer=null;
 const colorOf=id=>(CATS.find(c=>c.id===id)||{color:"#94a0b8"}).color;
 const catLabel=id=>{const c=CATS.find(x=>x.id===id);return c?(lang==="ko"?c.ko:c.en):id;};
 // 색상 모드: 분야(cat) / 토픽군집(cluster) / 감성(sentiment)
 const CLUSTER_COLORS=["#5b8cff","#34d399","#f59e0b","#a78bfa","#fb7185","#38bdf8","#facc15","#2dd4bf","#f472b6","#c084fc","#fb923c","#4ade80"];
-let colorMode=localStorage.getItem("mt_colormode")||"cat";
+let colorMode=HASH.get("cm")||localStorage.getItem("mt_colormode")||"cat";
 let clusterColorMap={};
 function buildClusterColors(data){clusterColorMap={};(data&&data.clusters||[]).forEach((cl,i)=>{clusterColorMap[cl.id]=CLUSTER_COLORS[i%CLUSTER_COLORS.length];});}
 function sentColor(s){const g="#9aa3b5";
@@ -358,7 +362,7 @@ async function init(){
     CFG=await fetch(API+"/api/config").then(r=>r.json());
     CATS=CFG.categories;REGIONS=CFG.regions;SOURCES=CFG.sources;
     $("hours").value=CFG.settings.default_hours;$("hoursVal").textContent=CFG.settings.default_hours;
-    renderControls();applyLang();
+    renderControls();applyLang();applyUrlState();
     $("hdrStat").textContent=t("src_active",{a:SOURCES.filter(s=>s.enabled).length,b:SOURCES.length});
   }catch(e){applyLang();setStatus(t("conn_err"));}
 }
@@ -423,6 +427,7 @@ async function run(){
       c:t("cache")[data.cache]||data.cache,kiwi:data.kiwi?"ON":"heuristic",
       t:new Date().toLocaleTimeString(lang==="ko"?"ko-KR":"en-US")})
       +` · ${sLbl} ${sentArrow(so)} ${so.toFixed(2)}`);
+    saveState();
   }catch(e){setStatus("❌ "+e.message);}
   $("run").disabled=false;
 }
@@ -708,15 +713,52 @@ $("resMerge").addEventListener("click",mergeSearch);
 document.querySelectorAll(".langtog button").forEach(b=>b.addEventListener("click",()=>{
   lang=b.dataset.lang;localStorage.setItem("mt_lang",lang);applyLang();}));
 $("themeBtn").addEventListener("click",()=>{
-  theme=theme==="dark"?"light":"dark";localStorage.setItem("mt_theme",theme);applyTheme();});
+  theme=theme==="dark"?"light":"dark";localStorage.setItem("mt_theme",theme);applyTheme();saveState();});
+
+// 라이브 자동갱신
+function toggleLive(){liveOn=!liveOn;$("live").classList.toggle("on",liveOn);
+  if(liveTimer){clearInterval(liveTimer);liveTimer=null;}
+  if(liveOn)liveTimer=setInterval(()=>{if(lastData&&!$("run").disabled)run();},60000);}
+$("live").addEventListener("click",toggleLive);
+
+// URL 해시로 상태 공유/복원
+function saveState(){
+  const p=new URLSearchParams();
+  p.set("r",region);p.set("lang",lang);p.set("th",theme);p.set("cm",colorMode);
+  p.set("h",$("hours").value);p.set("mf",$("minFreq").value);p.set("mk",$("maxKw").value);p.set("pf",$("perFeed").value);
+  p.set("c",selected("cat").join(","));p.set("v",document.querySelector(".tab.active").dataset.v);
+  history.replaceState(null,"","#"+p.toString());
+}
+function applyUrlState(){
+  ["hours","minFreq","maxKw","perFeed"].forEach((id,i)=>{
+    const k=["h","mf","mk","pf"][i],v=HASH.get(k);
+    if(v){$(id).value=v;const lbl={hours:"hoursVal",minFreq:"minFreqVal",maxKw:"maxKwVal",perFeed:"perFeedVal"}[id];$(lbl).textContent=v;}});
+  $("regionSeg").querySelectorAll("button").forEach(b=>b.classList.toggle("on",b.dataset.region===region));
+  if(HASH.get("c")){const want=new Set(HASH.get("c").split(",").filter(Boolean));
+    document.querySelectorAll(".cat").forEach(cb=>cb.checked=want.has(cb.value));}
+  const v=HASH.get("v");if(v){const tb=document.querySelector(`.tab[data-v="${v}"]`);if(tb)tb.click();}
+}
+
+// 키보드 단축키
+document.addEventListener("keydown",e=>{
+  const tag=(e.target.tagName||"").toLowerCase();
+  if(e.key==="Escape"){$("results").classList.remove("open");$("kwDrawer").classList.remove("open");return;}
+  if(tag==="input"||tag==="textarea")return;
+  if(e.metaKey||e.ctrlKey||e.altKey)return;
+  if(e.key==="/"){e.preventDefault();$("kwInput").focus();}
+  else if(e.key==="g")run();
+  else if(e.key==="t")$("themeBtn").click();
+  else if(e.key==="l"){lang=lang==="ko"?"en":"ko";localStorage.setItem("mt_lang",lang);applyLang();saveState();}
+  else if(/^[1-6]$/.test(e.key)){const tabs=document.querySelectorAll(".tab");if(tabs[+e.key-1])tabs[+e.key-1].click();}
+});
 $("regionSeg").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   region=b.dataset.region;$("regionSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
-  if(lastData)run();}));
+  saveState();if(lastData)run();}));
 document.querySelectorAll(".tab").forEach(tb=>tb.addEventListener("click",()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
   document.querySelectorAll(".pane").forEach(x=>x.classList.remove("active"));
   tb.classList.add("active");document.querySelector(`.pane[data-v="${tb.dataset.v}"]`).classList.add("active");
-  if(lastData)redraw();}));
+  if(lastData)redraw();saveState();}));
 window.addEventListener("resize",()=>{if(lastData)redraw();});
 
 applyTheme();
