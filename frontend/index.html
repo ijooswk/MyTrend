@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MyTrend · 뉴스 트렌드 맵</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3-cloud/1.2.7/d3.layout.cloud.min.js"></script>
+<style>
+  :root{--bg:#0f1117;--panel:#171a23;--panel2:#1f2430;--line:#2b3140;--txt:#e8eaf0;
+    --muted:#9aa3b5;--accent:#5b8cff;--ok:#34d399;--warn:#f59e0b;--err:#fb7185;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Apple SD Gothic Neo','Malgun Gothic',system-ui,sans-serif;
+    background:var(--bg);color:var(--txt);font-size:14px}
+  header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);
+    background:linear-gradient(90deg,#141824,#0f1117)}
+  header h1{font-size:17px;margin:0;font-weight:700}
+  header .sub{color:var(--muted);font-size:12px}
+  header .right{margin-left:auto;font-size:12px;color:var(--muted)}
+  .wrap{display:flex;min-height:calc(100vh - 53px)}
+  aside{width:300px;flex-shrink:0;border-right:1px solid var(--line);background:var(--panel);
+    padding:16px;overflow-y:auto;max-height:calc(100vh - 53px);position:sticky;top:0}
+  main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .sec{margin-bottom:18px}
+  .sec h3{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:0 0 8px;font-weight:700}
+  label.row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;cursor:pointer}
+  label.row span{font-size:13px}
+  label.row.dim{opacity:.45}
+  input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent)}
+  .chip{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%}
+  .badge{font-size:10px;padding:1px 6px;border-radius:10px;background:var(--panel2);color:var(--muted)}
+  .badge.on{background:rgba(52,211,153,.15);color:var(--ok)}
+  .badge.off{background:rgba(251,113,133,.12);color:var(--err)}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .val{color:var(--accent);font-weight:700}
+  .field{margin-bottom:10px}
+  .field>div:first-child{font-size:12px;color:var(--muted);margin-bottom:4px}
+  button.run{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;
+    padding:11px;font-size:14px;font-weight:700;cursor:pointer;margin-top:4px}
+  button.run:hover{filter:brightness(1.08)} button.run:disabled{opacity:.55;cursor:not-allowed}
+  button.ghost{width:100%;background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    border-radius:8px;padding:9px;font-size:13px;cursor:pointer;margin-top:8px}
+  .tabs{display:flex;gap:4px;padding:10px 16px 0;border-bottom:1px solid var(--line)}
+  .tab{padding:9px 16px;font-size:13px;color:var(--muted);cursor:pointer;border-radius:8px 8px 0 0;
+    border:1px solid transparent;border-bottom:none;font-weight:600}
+  .tab.active{color:var(--txt);background:var(--panel);border-color:var(--line)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:8px 16px;font-size:12px;border-bottom:1px solid var(--line)}
+  .view{flex:1;position:relative;overflow:hidden}
+  .pane{position:absolute;inset:0;display:none}.pane.active{display:block}
+  #netSvg,#bubbleSvg{width:100%;height:100%;display:block}
+  #cloudWrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+  .status{padding:8px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);
+    display:flex;align-items:center;gap:10px;min-height:34px;background:var(--panel)}
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:var(--muted);gap:10px;text-align:center;padding:20px}.empty b{color:var(--txt);font-size:15px}
+  .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:sp .7s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
+  .tooltip{position:fixed;pointer-events:none;background:#0b0d13;border:1px solid var(--line);
+    border-radius:8px;padding:8px 11px;font-size:12px;z-index:50;display:none;max-width:300px;line-height:1.5}
+  .tooltip b{color:var(--accent)}
+  .node-label{font-size:11px;fill:var(--txt);pointer-events:none}
+  .barpanel{position:absolute;right:14px;top:14px;width:230px;background:rgba(15,17,23,.85);
+    border:1px solid var(--line);border-radius:10px;padding:12px;backdrop-filter:blur(4px)}
+  .barpanel h4{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase}
+  .bar{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
+  .bar .bx{height:14px;border-radius:3px;min-width:3px}
+  .bar .bn{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .bc{color:var(--muted);font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<header>
+  <h1>📡 MyTrend</h1>
+  <span class="sub">최근 뉴스 키워드 트렌드 맵 · 다중 소스 · 경제·사회·과학·테크</span>
+  <span class="right" id="hdrStat"></span>
+</header>
+<div class="wrap">
+  <aside>
+    <div class="sec"><h3>분야</h3><div id="cats"></div></div>
+    <div class="sec"><h3>지역 / 소스 범위</h3><div id="regions"></div></div>
+    <div class="sec"><h3>데이터 소스</h3><div id="sources"></div></div>
+    <div class="sec"><h3>수집/표시 설정</h3>
+      <div class="field"><div>시간 범위 (최근 <span class="val" id="hoursVal">24</span>시간)</div>
+        <input type="range" id="hours" min="3" max="72" value="24"></div>
+      <div class="field"><div>최소 출현 빈도 <span class="val" id="minFreqVal">2</span></div>
+        <input type="range" id="minFreq" min="1" max="8" value="2"></div>
+      <div class="field"><div>표시 키워드 수 <span class="val" id="maxKwVal">80</span></div>
+        <input type="range" id="maxKw" min="20" max="200" step="10" value="80"></div>
+    </div>
+    <button class="run" id="run">트렌드 맵 생성 ▸</button>
+    <button class="ghost" id="ingest">⟳ 지금 새로 수집 (전 소스)</button>
+  </aside>
+  <main>
+    <div class="tabs">
+      <div class="tab active" data-v="net">🕸 키워드 네트워크</div>
+      <div class="tab" data-v="cloud">☁️ 워드클라우드</div>
+      <div class="tab" data-v="bubble">🫧 분야별 버블</div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="view">
+      <div class="pane active" data-v="net">
+        <svg id="netSvg"></svg>
+        <div class="barpanel" id="topPanel"><h4>상위 키워드</h4><div id="topList"></div></div>
+        <div class="empty" id="netEmpty"><b>아직 데이터가 없습니다</b>
+          <span>설정을 고르고 “트렌드 맵 생성”을 누르세요.<br>저장된 데이터가 없으면 자동으로 실시간 수집합니다.</span></div>
+      </div>
+      <div class="pane" data-v="cloud"><div id="cloudWrap"></div></div>
+      <div class="pane" data-v="bubble"><svg id="bubbleSvg"></svg></div>
+    </div>
+    <div class="status" id="status">백엔드 연결 중…</div>
+  </main>
+</div>
+<div class="tooltip" id="tip"></div>
+
+<script>
+const API = location.origin.startsWith("http") ? "" : "http://localhost:8000";
+let CATS=[], REGIONS=[], SOURCES=[];
+let lastData=null;
+const $=id=>document.getElementById(id);
+const colorOf=id=>(CATS.find(c=>c.id===id)||{color:"#9aa3b5"}).color;
+const koOf=id=>(CATS.find(c=>c.id===id)||{ko:id}).ko;
+
+const tip=$("tip");
+function showTip(html,e){tip.innerHTML=html;tip.style.display="block";moveTip(e);}
+function moveTip(e){tip.style.left=Math.min(e.clientX+14,innerWidth-310)+"px";tip.style.top=(e.clientY+14)+"px";}
+function hideTip(){tip.style.display="none";}
+const bind=(id,vid)=>{const s=$(id),v=$(vid);s.addEventListener("input",()=>v.textContent=s.value);};
+bind("hours","hoursVal");bind("minFreq","minFreqVal");bind("maxKw","maxKwVal");
+
+//──────────── 초기 설정 로드 ────────────
+async function init(){
+  try{
+    const cfg=await fetch(API+"/api/config").then(r=>r.json());
+    CATS=cfg.categories;REGIONS=cfg.regions;SOURCES=cfg.sources;
+    $("hours").value=cfg.settings.default_hours;$("hoursVal").textContent=cfg.settings.default_hours;
+    renderControls();
+    $("status").textContent="준비 완료 — 트렌드 맵을 생성하세요.";
+    $("hdrStat").textContent=`소스 ${SOURCES.filter(s=>s.enabled).length}/${SOURCES.length} 활성 · 수집주기 ${cfg.settings.ingest_interval_min}분`;
+  }catch(e){
+    $("status").innerHTML=`❌ 백엔드(${API||location.origin})에 연결할 수 없습니다. 서버를 먼저 실행하세요.`;
+  }
+}
+function renderControls(){
+  $("cats").innerHTML=CATS.map(c=>{
+    const def=c.id!=="WORLD";
+    return `<label class="row"><span class="chip"><span class="dot" style="background:${c.color}"></span>${c.ko}</span>
+      <input type="checkbox" class="cat" value="${c.id}" ${def?"checked":""}></label>`;}).join("");
+  $("regions").innerHTML=REGIONS.map(r=>
+    `<label class="row"><span>${r.ko} (${r.id})</span>
+      <input type="checkbox" class="reg" value="${r.id}" checked></label>`).join("");
+  $("sources").innerHTML=SOURCES.map(s=>{
+    const badge=s.enabled?`<span class="badge on">활성</span>`
+      :`<span class="badge off">${s.requires_key?"키 필요":"비활성"}</span>`;
+    return `<label class="row ${s.enabled?"":"dim"}"><span>${s.label} ${badge}</span>
+      <input type="checkbox" class="src" value="${s.name}" ${s.enabled?"checked":""} ${s.enabled?"":"disabled"}></label>`;}).join("");
+  $("legend").innerHTML=CATS.map(c=>
+    `<span class="chip"><span class="dot" style="background:${c.color}"></span>${c.ko}</span>`).join("");
+}
+
+//──────────── 데이터 요청 ────────────
+function selected(cls){return [...document.querySelectorAll("."+cls+":checked")].map(c=>c.value);}
+function params(){
+  const p=new URLSearchParams();
+  selected("cat").forEach(v=>p.append("categories",v));
+  selected("reg").forEach(v=>p.append("regions",v));
+  selected("src").forEach(v=>p.append("sources",v));
+  p.set("hours",$("hours").value);p.set("min_freq",$("minFreq").value);p.set("max_kw",$("maxKw").value);
+  return p;
+}
+function setStatus(html,busy){$("status").innerHTML=(busy?'<span class="spin"></span>':"")+html;}
+
+async function run(){
+  if(!selected("cat").length||!selected("reg").length){setStatus("⚠️ 분야·지역을 최소 1개씩 선택하세요.");return;}
+  $("run").disabled=true;$("netEmpty").style.display="none";
+  setStatus("트렌드 분석 중…",true);
+  try{
+    const data=await fetch(API+"/api/trends?"+params()).then(r=>r.json());
+    lastData=data;
+    if(!data.kws||!data.kws.length){
+      setStatus(`수집된 키워드가 없습니다 (기사 ${data.articleCount||0}건). 시간 범위/빈도를 조정하거나 ‘지금 새로 수집’을 눌러보세요.`);
+      $("run").disabled=false;return;
+    }
+    drawNetwork(data);drawCloud(data);drawBubble(data);
+    const t=new Date().toLocaleTimeString("ko-KR");
+    const cacheTxt={hit:"캐시",miss:"DB",backfill:"실시간수집"}[data.cache]||data.cache;
+    setStatus(`✅ 기사 ${data.articleCount}건 · 키워드 ${data.kws.length} · 연결 ${data.links.length} · ${cacheTxt} · 형태소분석 ${data.kiwi?"ON":"휴리스틱"} · ${t}`);
+  }catch(e){setStatus("❌ 요청 실패: "+e.message);}
+  $("run").disabled=false;
+}
+async function ingestNow(){
+  $("ingest").disabled=true;setStatus("전 소스에서 새로 수집 중… (수십 초 소요 가능)",true);
+  try{
+    const p=new URLSearchParams();
+    selected("cat").forEach(v=>p.append("categories",v));
+    selected("reg").forEach(v=>p.append("regions",v));
+    p.set("hours",$("hours").value);
+    const r=await fetch(API+"/api/ingest?"+p,{method:"POST"}).then(r=>r.json());
+    setStatus(`수집 완료: ${r.fetched}건 수집 / ${r.stored}건 신규저장 · 소스 ${Object.keys(r.per_source).length}개`);
+    await run();
+  }catch(e){setStatus("❌ 수집 실패: "+e.message);}
+  $("ingest").disabled=false;
+}
+$("run").addEventListener("click",run);
+$("ingest").addEventListener("click",ingestNow);
+
+//──────────── 시각화: 네트워크 ────────────
+let netSim=null;
+function drawNetwork(data){
+  const svg=d3.select("#netSvg");svg.selectAll("*").remove();
+  const el=$("netSvg"),W=el.clientWidth,H=el.clientHeight;
+  if(netSim)netSim.stop();
+  const g=svg.append("g");
+  svg.call(d3.zoom().scaleExtent([.3,4]).on("zoom",ev=>g.attr("transform",ev.transform)));
+  const nodes=data.kws.map(d=>({...d})),links=data.links.map(d=>({...d}));
+  const mx=d3.max(nodes,d=>d.freq)||1,rOf=d=>5+18*Math.sqrt(d.freq/mx);
+  netSim=d3.forceSimulation(nodes)
+    .force("link",d3.forceLink(links).id(d=>d.id).distance(d=>70-d.value*3).strength(.5))
+    .force("charge",d3.forceManyBody().strength(-160))
+    .force("center",d3.forceCenter(W/2,H/2))
+    .force("collide",d3.forceCollide(d=>rOf(d)+10));
+  const link=g.append("g").attr("stroke","#3a4256").attr("stroke-opacity",.5)
+    .selectAll("line").data(links).join("line").attr("stroke-width",d=>Math.min(5,1+d.value*.6));
+  const node=g.append("g").selectAll("g").data(nodes).join("g").style("cursor","pointer").call(drag(netSim));
+  node.append("circle").attr("r",rOf).attr("fill",d=>colorOf(d.cat)).attr("stroke","#0f1117").attr("stroke-width",1.5);
+  node.append("text").attr("class","node-label").attr("text-anchor","middle")
+    .attr("dy",d=>-rOf(d)-4).text(d=>d.id).style("display",d=>d.freq>=mx*0.18?null:"none");
+  node.on("mouseover",(e,d)=>{
+    const cats=Object.entries(d.catScore).map(([k,v])=>`${koOf(k)} ${v}`).join(" · ");
+    const arts=d.articles.map(a=>`· ${a.title}${a.publisher?` <span style="color:var(--muted)">(${a.publisher})</span>`:""}`).join("<br>");
+    showTip(`<b>${d.id}</b> — ${d.freq}회<br><span style="color:var(--muted)">${cats}</span><br><br>${arts}`,e);
+    link.attr("stroke-opacity",l=>l.source.id===d.id||l.target.id===d.id?.95:.08)
+        .attr("stroke",l=>l.source.id===d.id||l.target.id===d.id?colorOf(d.cat):"#3a4256");})
+   .on("mousemove",moveTip)
+   .on("mouseout",()=>{hideTip();link.attr("stroke-opacity",.5).attr("stroke","#3a4256");});
+  netSim.on("tick",()=>{
+    link.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y).attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
+    node.attr("transform",d=>`translate(${d.x},${d.y})`);});
+  const top=data.kws.slice(0,10),tm=top[0]?.freq||1;
+  $("topList").innerHTML=top.map(d=>
+    `<div class="bar"><div class="bx" style="width:${10+70*d.freq/tm}px;background:${colorOf(d.cat)}"></div>
+     <div class="bn">${d.id}</div><div class="bc">${d.freq}</div></div>`).join("");
+}
+function drag(sim){return d3.drag()
+  .on("start",(e,d)=>{if(!e.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y;})
+  .on("drag",(e,d)=>{d.fx=e.x;d.fy=e.y;})
+  .on("end",(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;});}
+
+//──────────── 시각화: 워드클라우드 ────────────
+function drawCloud(data){
+  const wrap=$("cloudWrap");wrap.innerHTML="";
+  const W=wrap.clientWidth,H=wrap.clientHeight;
+  const mx=d3.max(data.kws,d=>d.freq)||1,mn=d3.min(data.kws,d=>d.freq)||1;
+  const sc=d3.scaleSqrt().domain([mn,mx]).range([13,64]);
+  const words=data.kws.map(d=>({text:d.id,size:sc(d.freq),cat:d.cat,freq:d.freq}));
+  d3.layout.cloud().size([W,H]).words(words).padding(3)
+    .rotate(()=>(Math.random()<.25?90:0)).font("Apple SD Gothic Neo").fontSize(d=>d.size)
+    .on("end",ws=>{
+      const svg=d3.select(wrap).append("svg").attr("width",W).attr("height",H);
+      svg.append("g").attr("transform",`translate(${W/2},${H/2})`)
+        .selectAll("text").data(ws).join("text")
+        .style("font-family","Apple SD Gothic Neo,sans-serif").style("font-weight",700).style("cursor","pointer")
+        .style("fill",d=>colorOf(d.cat)).attr("text-anchor","middle").attr("font-size",d=>d.size)
+        .attr("transform",d=>`translate(${d.x},${d.y})rotate(${d.rotate})`).text(d=>d.text)
+        .on("mouseover",(e,d)=>showTip(`<b>${d.text}</b> — ${d.freq}회`,e))
+        .on("mousemove",moveTip).on("mouseout",hideTip);
+    }).start();
+}
+
+//──────────── 시각화: 분야별 버블 ────────────
+function drawBubble(data){
+  const svg=d3.select("#bubbleSvg");svg.selectAll("*").remove();
+  const el=$("bubbleSvg"),W=el.clientWidth,H=el.clientHeight;
+  const active=CATS.filter(c=>data.kws.some(k=>k.cat===c.id));
+  if(!active.length)return;
+  const colW=W/active.length,xOf={};active.forEach((c,i)=>xOf[c.id]=colW*(i+.5));
+  svg.append("g").selectAll("text").data(active).join("text")
+    .attr("x",c=>xOf[c.id]).attr("y",26).attr("text-anchor","middle")
+    .attr("fill",c=>c.color).attr("font-weight",700).attr("font-size",15).text(c=>c.ko);
+  const mx=d3.max(data.kws,d=>d.freq)||1,rOf=d=>6+30*Math.sqrt(d.freq/mx);
+  const nodes=data.kws.map(d=>({...d}));
+  const sim=d3.forceSimulation(nodes)
+    .force("x",d3.forceX(d=>xOf[d.cat]||W/2).strength(.5))
+    .force("y",d3.forceY(H/2+15).strength(.06))
+    .force("collide",d3.forceCollide(d=>rOf(d)+1.5)).stop();
+  for(let i=0;i<260;i++)sim.tick();
+  const g=svg.append("g").selectAll("g").data(nodes).join("g").style("cursor","pointer");
+  g.append("circle").attr("cx",d=>d.x).attr("cy",d=>d.y).attr("r",rOf)
+    .attr("fill",d=>colorOf(d.cat)).attr("fill-opacity",.82).attr("stroke","#0f1117");
+  g.append("text").attr("x",d=>d.x).attr("y",d=>d.y).attr("dy",".32em").attr("text-anchor","middle")
+    .attr("fill","#0b0d13").attr("font-weight",700).attr("font-size",d=>Math.min(13,rOf(d)*.7))
+    .style("display",d=>rOf(d)>15?null:"none").text(d=>d.id);
+  g.on("mouseover",(e,d)=>showTip(`<b>${d.id}</b> — ${d.freq}회 · ${koOf(d.cat)}`,e))
+   .on("mousemove",moveTip).on("mouseout",hideTip);
+}
+
+//──────────── 탭/리사이즈 ────────────
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  document.querySelectorAll(".pane").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active");
+  document.querySelector(`.pane[data-v="${t.dataset.v}"]`).classList.add("active");
+  if(lastData){const v=t.dataset.v;
+    if(v==="cloud")drawCloud(lastData);if(v==="bubble")drawBubble(lastData);if(v==="net")drawNetwork(lastData);}
+}));
+window.addEventListener("resize",()=>{if(lastData){
+  const v=document.querySelector(".tab.active").dataset.v;
+  if(v==="net")drawNetwork(lastData);if(v==="cloud")drawCloud(lastData);if(v==="bubble")drawBubble(lastData);}});
+
+init();
+</script>
+</body>
+</html>

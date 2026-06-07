@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MyTrend · 뉴스 트렌드 맵</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3-cloud/1.2.7/d3.layout.cloud.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1117; --panel:#171a23; --panel2:#1f2430; --line:#2b3140;
+    --txt:#e8eaf0; --muted:#9aa3b5; --accent:#5b8cff;
+    --eco:#34d399; --soc:#f59e0b; --sci:#a78bfa; --tech:#38bdf8; --world:#fb7185;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Apple SD Gothic Neo','Malgun Gothic',system-ui,-apple-system,sans-serif;
+    background:var(--bg);color:var(--txt);font-size:14px}
+  header{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);
+    background:linear-gradient(90deg,#141824,#0f1117)}
+  header h1{font-size:17px;margin:0;font-weight:700;letter-spacing:-.3px}
+  header .sub{color:var(--muted);font-size:12px}
+  .wrap{display:flex;min-height:calc(100vh - 53px)}
+  aside{width:300px;flex-shrink:0;border-right:1px solid var(--line);background:var(--panel);
+    padding:16px;overflow-y:auto;max-height:calc(100vh - 53px);position:sticky;top:0}
+  main{flex:1;display:flex;flex-direction:column;min-width:0}
+  .sec{margin-bottom:18px}
+  .sec h3{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
+    margin:0 0 8px;font-weight:700}
+  label.row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 0;cursor:pointer}
+  label.row span{font-size:13px}
+  input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent)}
+  .chip{display:inline-flex;align-items:center;gap:6px}
+  .dot{width:9px;height:9px;border-radius:50%}
+  select,input[type=number],input[type=text]{width:100%;background:var(--panel2);color:var(--txt);
+    border:1px solid var(--line);border-radius:7px;padding:7px 9px;font-size:13px;font-family:inherit}
+  input[type=range]{width:100%;accent-color:var(--accent)}
+  .val{color:var(--accent);font-weight:700}
+  button.run{width:100%;background:var(--accent);color:#fff;border:none;border-radius:8px;
+    padding:11px;font-size:14px;font-weight:700;cursor:pointer;margin-top:4px}
+  button.run:hover{filter:brightness(1.08)}
+  button.run:disabled{opacity:.55;cursor:not-allowed}
+  .field{margin-bottom:10px}
+  .field > div:first-child{font-size:12px;color:var(--muted);margin-bottom:4px}
+  .tabs{display:flex;gap:4px;padding:10px 16px 0;border-bottom:1px solid var(--line)}
+  .tab{padding:9px 16px;font-size:13px;color:var(--muted);cursor:pointer;border-radius:8px 8px 0 0;
+    border:1px solid transparent;border-bottom:none;font-weight:600}
+  .tab.active{color:var(--txt);background:var(--panel);border-color:var(--line)}
+  .view{flex:1;position:relative;overflow:hidden}
+  .view > div{position:absolute;inset:0;display:none}
+  .view > div.active{display:block}
+  #netSvg,#bubbleSvg{width:100%;height:100%;display:block}
+  #cloudWrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center}
+  .status{padding:8px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);
+    display:flex;align-items:center;gap:10px;min-height:34px;background:var(--panel)}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:8px 16px;font-size:12px;border-bottom:1px solid var(--line)}
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    color:var(--muted);gap:10px;text-align:center;padding:20px}
+  .empty b{color:var(--txt);font-size:15px}
+  .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);
+    border-radius:50%;animation:sp .7s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .tooltip{position:fixed;pointer-events:none;background:#0b0d13;border:1px solid var(--line);
+    border-radius:8px;padding:8px 11px;font-size:12px;z-index:50;display:none;max-width:280px;line-height:1.5}
+  .tooltip b{color:var(--accent)}
+  .node-label{font-size:11px;fill:var(--txt);pointer-events:none}
+  .barpanel{position:absolute;right:14px;top:14px;width:230px;background:rgba(15,17,23,.85);
+    border:1px solid var(--line);border-radius:10px;padding:12px;backdrop-filter:blur(4px)}
+  .barpanel h4{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase}
+  .bar{display:flex;align-items:center;gap:8px;margin:4px 0;font-size:12px}
+  .bar .bx{height:14px;border-radius:3px;min-width:3px}
+  .bar .bn{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar .bc{color:var(--muted);font-variant-numeric:tabular-nums}
+  a.srclink{color:var(--accent);text-decoration:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>📡 MyTrend</h1>
+  <span class="sub">최근 뉴스 키워드 트렌드 맵 · 경제 · 사회 · 과학 · 테크</span>
+</header>
+<div class="wrap">
+  <aside>
+    <div class="sec">
+      <h3>분야</h3>
+      <div id="cats"></div>
+    </div>
+    <div class="sec">
+      <h3>지역 / 소스</h3>
+      <div id="regions"></div>
+    </div>
+    <div class="sec">
+      <h3>수집 설정</h3>
+      <div class="field">
+        <div>분야·지역별 기사 수 <span class="val" id="perFeedVal">40</span>건</div>
+        <input type="range" id="perFeed" min="10" max="100" step="5" value="40">
+      </div>
+      <div class="field">
+        <div>시간 범위 (최근 <span class="val" id="hoursVal">24</span>시간)</div>
+        <input type="range" id="hours" min="3" max="72" step="1" value="24">
+      </div>
+    </div>
+    <div class="sec">
+      <h3>키워드 설정</h3>
+      <div class="field">
+        <div>최소 출현 빈도 <span class="val" id="minFreqVal">2</span></div>
+        <input type="range" id="minFreq" min="1" max="8" step="1" value="2">
+      </div>
+      <div class="field">
+        <div>표시 키워드 수 <span class="val" id="maxKwVal">80</span></div>
+        <input type="range" id="maxKw" min="20" max="200" step="10" value="80">
+      </div>
+    </div>
+    <div class="sec">
+      <h3>네트워크 연결</h3>
+      <div class="field">
+        <div>CORS 프록시</div>
+        <select id="proxy">
+          <option value="https://api.allorigins.win/raw?url=">allorigins.win (기본)</option>
+          <option value="https://corsproxy.io/?url=">corsproxy.io</option>
+          <option value="https://thingproxy.freeboard.io/fetch/">thingproxy</option>
+          <option value="">프록시 없음 (직접)</option>
+        </select>
+      </div>
+    </div>
+    <button class="run" id="run">트렌드 맵 생성 ▸</button>
+  </aside>
+  <main>
+    <div class="tabs">
+      <div class="tab active" data-v="net">🕸 키워드 네트워크</div>
+      <div class="tab" data-v="cloud">☁️ 워드클라우드</div>
+      <div class="tab" data-v="bubble">🫧 분야별 버블</div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div class="view">
+      <div class="pane active" data-v="net">
+        <svg id="netSvg"></svg>
+        <div class="barpanel" id="topPanel"><h4>상위 키워드</h4><div id="topList"></div></div>
+        <div class="empty" id="netEmpty"><b>아직 데이터가 없습니다</b><span>왼쪽에서 분야·지역을 고르고<br>“트렌드 맵 생성”을 눌러주세요.</span></div>
+      </div>
+      <div class="pane" data-v="cloud"><div id="cloudWrap"></div></div>
+      <div class="pane" data-v="bubble"><svg id="bubbleSvg"></svg></div>
+    </div>
+    <div class="status" id="status">대기 중 — 설정 후 생성 버튼을 누르세요.</div>
+  </main>
+</div>
+<div class="tooltip" id="tip"></div>
+
+<script>
+//============================ 설정 정의 ============================
+const CATS = [
+  {id:'BUSINESS', ko:'경제', color:'var(--eco)', c:'#34d399'},
+  {id:'NATION',   ko:'사회', color:'var(--soc)', c:'#f59e0b'},
+  {id:'SCIENCE',  ko:'과학', color:'var(--sci)', c:'#a78bfa'},
+  {id:'TECHNOLOGY',ko:'테크', color:'var(--tech)',c:'#38bdf8'},
+  {id:'WORLD',    ko:'세계', color:'var(--world)',c:'#fb7185'},
+];
+const REGIONS = [
+  {id:'KR', ko:'한국 (국내 언론)', hl:'ko', gl:'KR', ceid:'KR:ko', def:true},
+  {id:'US', ko:'글로벌 (영어권)',  hl:'en-US', gl:'US', ceid:'US:en', def:true},
+];
+
+// 분야 체크박스 렌더
+const catsEl = document.getElementById('cats');
+CATS.forEach(c=>{
+  const def = c.id!=='WORLD';
+  catsEl.insertAdjacentHTML('beforeend',
+   `<label class="row"><span class="chip"><span class="dot" style="background:${c.color}"></span>${c.ko}</span>
+    <input type="checkbox" class="cat" value="${c.id}" ${def?'checked':''}></label>`);
+});
+const regEl = document.getElementById('regions');
+REGIONS.forEach(r=>{
+  regEl.insertAdjacentHTML('beforeend',
+   `<label class="row"><span>${r.ko}</span>
+    <input type="checkbox" class="reg" value="${r.id}" ${r.def?'checked':''}></label>`);
+});
+
+// 슬라이더 값 표시
+const bind=(id,vid,suf='')=>{const s=document.getElementById(id),v=document.getElementById(vid);
+  s.addEventListener('input',()=>v.textContent=s.value+suf);};
+bind('perFeed','perFeedVal');bind('hours','hoursVal');bind('minFreq','minFreqVal');bind('maxKw','maxKwVal');
+
+//============================ 불용어 / 토크나이저 ============================
+const STOP_KO = new Set(`그리고 그러나 하지만 또한 또는 위해 통해 대해 관련 대한 가운데 이번 지난 오늘 내일 어제 올해 작년 내년
+모든 각종 일부 관계자 기자 뉴스 사진 영상 속보 단독 종합 정부 한국 우리 이날 당시 이후 이전 최근 현재 만큼 동안 가장 매우 다시
+밝혔다 말했다 전했다 됐다 했다 한다 된다 한다는 했다는 라며 라고 으로 에서 까지 부터 보다 처럼 에게 한테 이라고 이라며
+오전 오후 기준 대비 관련해 위한 따라 따르면 경우 정도 예정 계획 추진 발표 진행 확대 강화 마련 방안 상황 문제 필요
+명 개 건 원 억 조 만 천 백 차 위 등 및 약 총 전 후 중 시 분 일 월 년`.split(/\s+/).filter(Boolean));
+const STOP_EN = new Set(`the a an and or but for nor on in at to of by with from into over after about as is are was were be been being
+this that these those it its his her their our your my you we they he she them us new news say says said will would can could may
+might more most than then so up out off down very just also amid over how why what when who which has have had not no yes get got
+year years day days time week month report reports update live video photo via amp top via vs`.split(/\s+/).filter(Boolean));
+const KO_PARTICLES = ['으로서','으로써','에서는','에서도','으로','에서','에게','한테','까지','부터','보다','처럼','이라','라며','라고',
+  '이가','은','는','이','가','을','를','에','와','과','도','만','의','로','며','란','엔','선','겐'];
+// 길이가 짧아도 의미가 큰 핵심어(약어 등)는 보존
+const SHORT_KEEP = new Set(['ai','ev','5g','6g','ml','ar','vr','xr','ev','un','eu','us','gpt','llm','iot','gpu','cpu','io','ev','ipo','m&a']);
+
+function stripParticle(t){
+  for(const p of KO_PARTICLES){ if(t.length>p.length+1 && t.endsWith(p)) return t.slice(0,t.length-p.length); }
+  return t;
+}
+function isHangul(s){return /[가-힣]/.test(s);}
+
+function tokenize(title){
+  // 언론사 접미("제목 - 언론사") 제거
+  let t = title.replace(/\s[-–—]\s[^-–—]+$/,'').trim();
+  const raw = t.split(/[\s,./()\[\]{}"'“”‘’·…|!?:;~`@#$%^&*+=<>\\]+/);
+  const out=[];
+  for(let w of raw){
+    if(!w) continue;
+    if(isHangul(w)){
+      w = stripParticle(w.replace(/[^가-힣A-Za-z0-9]/g,''));
+      if(w.length>=2 && !STOP_KO.has(w)) out.push(w);
+    } else {
+      w = w.toLowerCase().replace(/[^a-z0-9&]/g,'');
+      if(SHORT_KEEP.has(w)){ out.push(w.toUpperCase()); continue; }
+      if(w.length>=3 && !STOP_EN.has(w) && !/^\d+$/.test(w)) out.push(w);
+    }
+  }
+  return out;
+}
+
+//============================ 뉴스 수집 ============================
+function feedUrl(topic,r){
+  return `https://news.google.com/rss/headlines/section/topic/${topic}?hl=${r.hl}&gl=${r.gl}&ceid=${encodeURIComponent(r.ceid)}`;
+}
+async function fetchFeed(url, proxy){
+  const full = proxy ? proxy + encodeURIComponent(url) : url;
+  const res = await fetch(full, {headers:{'Accept':'application/xml, text/xml, */*'}});
+  if(!res.ok) throw new Error('HTTP '+res.status);
+  const text = await res.text();
+  const xml = new DOMParser().parseFromString(text,'text/xml');
+  if(xml.querySelector('parsererror')) throw new Error('XML 파싱 실패');
+  return [...xml.querySelectorAll('item')].map(it=>({
+    title:(it.querySelector('title')?.textContent||'').trim(),
+    link: it.querySelector('link')?.textContent||'',
+    date: new Date(it.querySelector('pubDate')?.textContent||Date.now()),
+    source:(it.getElementsByTagName('source')[0]?.textContent||'').trim(),
+  }));
+}
+
+//============================ 분석 ============================
+function analyze(articles, opts){
+  const freq=new Map();         // kw -> count
+  const catScore=new Map();     // kw -> {cat:count}
+  const co=new Map();           // "a|b" -> count
+  const kwArticles=new Map();   // kw -> [titles]
+  for(const a of articles){
+    const toks=[...new Set(tokenize(a.title))];
+    for(const w of toks){
+      freq.set(w,(freq.get(w)||0)+1);
+      if(!catScore.has(w)) catScore.set(w,{});
+      catScore.get(w)[a.cat]=(catScore.get(w)[a.cat]||0)+1;
+      if(!kwArticles.has(w)) kwArticles.set(w,[]);
+      if(kwArticles.get(w).length<5) kwArticles.get(w).push(a);
+    }
+    for(let i=0;i<toks.length;i++) for(let j=i+1;j<toks.length;j++){
+      const k=[toks[i],toks[j]].sort().join('|');
+      co.set(k,(co.get(k)||0)+1);
+    }
+  }
+  let kws=[...freq.entries()].filter(([,c])=>c>=opts.minFreq)
+    .sort((a,b)=>b[1]-a[1]).slice(0,opts.maxKw).map(([w,c])=>{
+      const cs=catScore.get(w); let top='',mx=0;
+      for(const k in cs) if(cs[k]>mx){mx=cs[k];top=k;}
+      return {id:w,freq:c,cat:top,catScore:cs,articles:kwArticles.get(w)};
+    });
+  const keep=new Set(kws.map(k=>k.id));
+  const links=[...co.entries()].filter(([k,c])=>{
+    const [a,b]=k.split('|'); return c>=Math.max(2,opts.minFreq) && keep.has(a)&&keep.has(b);
+  }).map(([k,c])=>{const [s,t]=k.split('|');return {source:s,target:t,value:c};});
+  return {kws,links};
+}
+
+//============================ 시각화 ============================
+const colorOf = id => (CATS.find(c=>c.id===id)||{c:'#9aa3b5'}).c;
+const tip = document.getElementById('tip');
+function showTip(html,e){tip.innerHTML=html;tip.style.display='block';moveTip(e);}
+function moveTip(e){tip.style.left=Math.min(e.clientX+14,innerWidth-300)+'px';tip.style.top=(e.clientY+14)+'px';}
+function hideTip(){tip.style.display='none';}
+
+let netSim=null;
+function drawNetwork(data){
+  const svg=d3.select('#netSvg'); svg.selectAll('*').remove();
+  const el=document.getElementById('netSvg');
+  const W=el.clientWidth, H=el.clientHeight;
+  if(netSim) netSim.stop();
+  const g=svg.append('g');
+  svg.call(d3.zoom().scaleExtent([.3,4]).on('zoom',ev=>g.attr('transform',ev.transform)));
+  const nodes=data.kws.map(d=>({...d})), links=data.links.map(d=>({...d}));
+  const mx=d3.max(nodes,d=>d.freq)||1;
+  const rOf=d=>5+18*Math.sqrt(d.freq/mx);
+  netSim=d3.forceSimulation(nodes)
+    .force('link',d3.forceLink(links).id(d=>d.id).distance(d=>70-d.value*3).strength(.5))
+    .force('charge',d3.forceManyBody().strength(-160))
+    .force('center',d3.forceCenter(W/2,H/2))
+    .force('collide',d3.forceCollide(d=>rOf(d)+10));
+  const link=g.append('g').attr('stroke','#3a4256').attr('stroke-opacity',.5)
+    .selectAll('line').data(links).join('line')
+    .attr('stroke-width',d=>Math.min(5,1+d.value*.6));
+  const node=g.append('g').selectAll('g').data(nodes).join('g')
+    .style('cursor','pointer').call(drag(netSim));
+  node.append('circle').attr('r',rOf).attr('fill',d=>colorOf(d.cat))
+    .attr('stroke','#0f1117').attr('stroke-width',1.5);
+  node.append('text').attr('class','node-label').attr('text-anchor','middle')
+    .attr('dy',d=>-rOf(d)-4).text(d=>d.id)
+    .style('display',d=>d.freq>=mx*0.18?null:'none');
+  node.on('mouseover',(e,d)=>{
+      const cats=Object.entries(d.catScore).map(([k,v])=>`${(CATS.find(c=>c.id===k)||{}).ko||k} ${v}`).join(' · ');
+      const arts=d.articles.map(a=>`· ${a.title}`).join('<br>');
+      showTip(`<b>${d.id}</b> — ${d.freq}회<br><span style="color:var(--muted)">${cats}</span><br><br>${arts}`,e);
+      link.attr('stroke-opacity',l=>l.source.id===d.id||l.target.id===d.id?.95:.08)
+          .attr('stroke',l=>l.source.id===d.id||l.target.id===d.id?colorOf(d.cat):'#3a4256');
+    })
+    .on('mousemove',moveTip)
+    .on('mouseout',()=>{hideTip();link.attr('stroke-opacity',.5).attr('stroke','#3a4256');});
+  netSim.on('tick',()=>{
+    link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    node.attr('transform',d=>`translate(${d.x},${d.y})`);
+  });
+  // 상위 키워드 패널
+  const top=data.kws.slice(0,10), tm=top[0]?.freq||1;
+  document.getElementById('topList').innerHTML = top.map(d=>
+    `<div class="bar"><div class="bx" style="width:${10+70*d.freq/tm}px;background:${colorOf(d.cat)}"></div>
+     <div class="bn">${d.id}</div><div class="bc">${d.freq}</div></div>`).join('');
+}
+function drag(sim){
+  return d3.drag()
+    .on('start',(e,d)=>{if(!e.active)sim.alphaTarget(.3).restart();d.fx=d.x;d.fy=d.y;})
+    .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y;})
+    .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null;});
+}
+
+function drawCloud(data){
+  const wrap=document.getElementById('cloudWrap'); wrap.innerHTML='';
+  const W=wrap.clientWidth, H=wrap.clientHeight;
+  const mx=d3.max(data.kws,d=>d.freq)||1, mn=d3.min(data.kws,d=>d.freq)||1;
+  const sc=d3.scaleSqrt().domain([mn,mx]).range([13,64]);
+  const words=data.kws.map(d=>({text:d.id,size:sc(d.freq),cat:d.cat,freq:d.freq}));
+  d3.layout.cloud().size([W,H]).words(words).padding(3)
+    .rotate(()=>(Math.random()<.25?90:0)).font('Apple SD Gothic Neo')
+    .fontSize(d=>d.size).on('end',words=>{
+      const svg=d3.select(wrap).append('svg').attr('width',W).attr('height',H);
+      svg.append('g').attr('transform',`translate(${W/2},${H/2})`)
+        .selectAll('text').data(words).join('text')
+        .style('font-family','Apple SD Gothic Neo,sans-serif').style('font-weight',700)
+        .style('cursor','pointer')
+        .style('fill',d=>colorOf(d.cat)).attr('text-anchor','middle')
+        .attr('font-size',d=>d.size)
+        .attr('transform',d=>`translate(${d.x},${d.y})rotate(${d.rotate})`)
+        .text(d=>d.text)
+        .on('mouseover',(e,d)=>showTip(`<b>${d.text}</b> — ${d.freq}회`,e))
+        .on('mousemove',moveTip).on('mouseout',hideTip);
+    }).start();
+}
+
+function drawBubble(data){
+  const svg=d3.select('#bubbleSvg'); svg.selectAll('*').remove();
+  const el=document.getElementById('bubbleSvg');
+  const W=el.clientWidth, H=el.clientHeight;
+  const active=CATS.filter(c=>data.kws.some(k=>k.cat===c.id));
+  if(!active.length) return;
+  const colW=W/active.length;
+  const xOf={}; active.forEach((c,i)=>xOf[c.id]=colW*(i+.5));
+  // 분야 헤더
+  svg.append('g').selectAll('text').data(active).join('text')
+    .attr('x',c=>xOf[c.id]).attr('y',26).attr('text-anchor','middle')
+    .attr('fill',c=>c.c).attr('font-weight',700).attr('font-size',15).text(c=>c.ko);
+  const mx=d3.max(data.kws,d=>d.freq)||1;
+  const rOf=d=>6+30*Math.sqrt(d.freq/mx);
+  const nodes=data.kws.map(d=>({...d}));
+  const sim=d3.forceSimulation(nodes)
+    .force('x',d3.forceX(d=>xOf[d.cat]||W/2).strength(.5))
+    .force('y',d3.forceY(H/2+15).strength(.06))
+    .force('collide',d3.forceCollide(d=>rOf(d)+1.5))
+    .stop();
+  for(let i=0;i<260;i++) sim.tick();
+  const g=svg.append('g').selectAll('g').data(nodes).join('g').style('cursor','pointer');
+  g.append('circle').attr('cx',d=>d.x).attr('cy',d=>d.y).attr('r',rOf)
+    .attr('fill',d=>colorOf(d.cat)).attr('fill-opacity',.82).attr('stroke','#0f1117');
+  g.append('text').attr('x',d=>d.x).attr('y',d=>d.y).attr('dy','.32em').attr('text-anchor','middle')
+    .attr('fill','#0b0d13').attr('font-weight',700)
+    .attr('font-size',d=>Math.min(13,rOf(d)*.7))
+    .style('display',d=>rOf(d)>15?null:'none').text(d=>d.id);
+  g.on('mouseover',(e,d)=>showTip(`<b>${d.id}</b> — ${d.freq}회 · ${(CATS.find(c=>c.id===d.cat)||{}).ko||''}`,e))
+   .on('mousemove',moveTip).on('mouseout',hideTip);
+}
+
+//============================ 메인 실행 ============================
+const statusEl=document.getElementById('status');
+function setStatus(html,busy){statusEl.innerHTML=(busy?'<span class="spin"></span>':'')+html;}
+let lastData=null;
+
+document.getElementById('legend').innerHTML = CATS.map(c=>
+  `<span class="chip"><span class="dot" style="background:${c.color}"></span>${c.ko}</span>`).join('');
+
+async function run(){
+  const cats=[...document.querySelectorAll('.cat:checked')].map(c=>c.value);
+  const regs=[...document.querySelectorAll('.reg:checked')].map(c=>c.value).map(id=>REGIONS.find(r=>r.id===id));
+  if(!cats.length||!regs.length){setStatus('⚠️ 분야와 지역을 최소 1개씩 선택하세요.');return;}
+  const opts={
+    perFeed:+document.getElementById('perFeed').value,
+    hours:+document.getElementById('hours').value,
+    minFreq:+document.getElementById('minFreq').value,
+    maxKw:+document.getElementById('maxKw').value,
+    proxy:document.getElementById('proxy').value,
+  };
+  const btn=document.getElementById('run'); btn.disabled=true;
+  document.getElementById('netEmpty').style.display='none';
+  const jobs=[];
+  for(const r of regs) for(const cat of cats) jobs.push({r,cat,url:feedUrl(cat,r)});
+  setStatus(`뉴스 수집 중… (피드 ${jobs.length}개)`,true);
+  const cutoff=Date.now()-opts.hours*3600*1000;
+  let articles=[], ok=0, fail=0;
+  const results=await Promise.allSettled(jobs.map(j=>fetchFeed(j.url,opts.proxy)));
+  results.forEach((res,i)=>{
+    const {cat}=jobs[i];
+    if(res.status==='fulfilled'){
+      ok++;
+      res.value.slice(0,opts.perFeed)
+        .filter(a=>a.title && a.date.getTime()>=cutoff)
+        .forEach(a=>articles.push({...a,cat}));
+    } else fail++;
+  });
+  // 제목 기준 중복 제거
+  const seen=new Set();
+  articles=articles.filter(a=>{const k=a.title.toLowerCase().replace(/\s+/g,'');if(seen.has(k))return false;seen.add(k);return true;});
+  if(!articles.length){
+    btn.disabled=false;
+    setStatus(`❌ 수집된 기사가 없습니다. ${fail?`피드 ${fail}개 실패 — 다른 CORS 프록시를 선택해 보세요.`:'시간 범위를 늘려보세요.'}`);
+    return;
+  }
+  const data=analyze(articles,opts);
+  lastData=data;
+  drawNetwork(data); drawCloud(data); drawBubble(data);
+  const now=new Date().toLocaleTimeString('ko-KR');
+  setStatus(`✅ 기사 ${articles.length}건 · 키워드 ${data.kws.length}개 · 연결 ${data.links.length}개 · 피드 ${ok}/${jobs.length} 성공${fail?` (실패 ${fail})`:''} · ${now} 갱신`);
+  btn.disabled=false;
+}
+document.getElementById('run').addEventListener('click',run);
+
+//============================ 탭 전환 ============================
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.pane').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  document.querySelector(`.pane[data-v="${t.dataset.v}"]`).classList.add('active');
+  if(lastData){ // 리사이즈 대응 재렌더
+    if(t.dataset.v==='cloud') drawCloud(lastData);
+    if(t.dataset.v==='bubble') drawBubble(lastData);
+    if(t.dataset.v==='net') drawNetwork(lastData);
+  }
+}));
+window.addEventListener('resize',()=>{ if(lastData){
+  const v=document.querySelector('.tab.active').dataset.v;
+  if(v==='net')drawNetwork(lastData); if(v==='cloud')drawCloud(lastData); if(v==='bubble')drawBubble(lastData);
+}});
+</script>
+</body>
+</html>
