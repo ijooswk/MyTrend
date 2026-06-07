@@ -72,12 +72,13 @@ async def api_trends(
     hours: int = Query(24, ge=1, le=168),
     min_freq: int = Query(2, ge=1, le=10),
     max_kw: int = Query(80, ge=10, le=300),
+    per_feed: int | None = Query(None, ge=5, le=200),
     live: bool = Query(True),
 ):
     """트렌드 맵(키워드 노드/링크 + 분야 집계) 반환."""
     data = await get_trends(
         state["db"], categories=categories, regions=regions, sources=sources,
-        hours=hours, min_freq=min_freq, max_kw=max_kw, live=live,
+        hours=hours, min_freq=min_freq, max_kw=max_kw, per_feed=per_feed, live=live,
     )
     return JSONResponse(data)
 
@@ -87,10 +88,11 @@ async def api_ingest(
     categories: list[str] | None = Query(None),
     regions: list[str] | None = Query(None),
     hours: int | None = Query(None),
+    per_feed: int | None = Query(None, ge=5, le=200),
 ):
     """수동 즉시 수집 트리거."""
     result = await run_ingest(state["db"], categories=categories,
-                              regions=regions, hours=hours)
+                              regions=regions, hours=hours, per_feed=per_feed)
     clear_cache()
     return result
 
@@ -100,6 +102,7 @@ async def api_search(
     q: str = Query(..., min_length=1),
     regions: list[str] | None = Query(None),
     hours: int = Query(48, ge=1, le=168),
+    count: int = Query(30, ge=5, le=100),
     store: bool = Query(False),
     min_freq: int = Query(1, ge=1, le=10),
     max_kw: int = Query(60, ge=10, le=300),
@@ -107,9 +110,10 @@ async def api_search(
     """키워드로 관련 뉴스를 실시간 검색.
 
     - 항상 기사 목록(articles)과 미니 트렌드(trend)를 반환.
+    - count: 소스별 최대 검색 기사 수.
     - store=true 면 결과를 DB에 적재해 전체 트렌드 맵에 병합되도록 한다.
     """
-    arts = await search_news(q, regions=regions, hours=hours)
+    arts = await search_news(q, regions=regions, hours=hours, per_region=count)
     if store and arts:
         state["db"].upsert_many(arts)
         clear_cache()

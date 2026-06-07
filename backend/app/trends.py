@@ -13,9 +13,9 @@ from .nlp import build_trends
 _CACHE: dict[str, tuple[float, dict]] = {}
 
 
-def _key(categories, regions, sources, hours, min_freq, max_kw) -> str:
+def _key(categories, regions, sources, hours, min_freq, max_kw, per_feed) -> str:
     return json.dumps([sorted(categories), sorted(regions),
-                       sorted(sources or []), hours, min_freq, max_kw],
+                       sorted(sources or []), hours, min_freq, max_kw, per_feed],
                       ensure_ascii=False)
 
 
@@ -23,7 +23,8 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
                      regions: list[str] | None = None,
                      sources: list[str] | None = None,
                      hours: int | None = None, min_freq: int = 2,
-                     max_kw: int = 80, live: bool = True) -> dict:
+                     max_kw: int = 80, per_feed: int | None = None,
+                     live: bool = True) -> dict:
     """트렌드 맵 반환.
 
     1) 캐시 히트 시 즉시 반환.
@@ -34,7 +35,7 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
     regions = regions or REGION_IDS
     hours = hours or s.mytrend_default_hours
 
-    ck = _key(categories, regions, sources, hours, min_freq, max_kw)
+    ck = _key(categories, regions, sources, hours, min_freq, max_kw, per_feed)
     now = time.time()
     hit = _CACHE.get(ck)
     if hit and hit[0] > now:
@@ -48,7 +49,8 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
     backfilled = False
     if not arts and live:
         # 캐시 미스(저장된 데이터 없음) → 즉시 수집 후 재조회
-        await run_ingest(db, categories=categories, regions=regions, hours=hours)
+        await run_ingest(db, categories=categories, regions=regions, hours=hours,
+                         per_feed=per_feed)
         arts = db.query(since=since, categories=categories, regions=regions, sources=sources)
         backfilled = True
 

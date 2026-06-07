@@ -17,14 +17,15 @@ log = logging.getLogger("mytrend.ingest")
 
 async def run_ingest(db: DB, *, categories: list[str] | None = None,
                      regions: list[str] | None = None,
-                     hours: int | None = None) -> dict:
+                     hours: int | None = None,
+                     per_feed: int | None = None) -> dict:
     """모든 활성 소스에서 수집해 DB에 적재. 요약 통계 반환."""
     s = get_settings()
     categories = categories or CATEGORY_IDS
     regions = regions or REGION_IDS
     hours = hours or s.mytrend_default_hours
     since = time.time() - hours * 3600
-    per_feed = s.mytrend_per_feed_limit
+    per_feed = per_feed or s.mytrend_per_feed_limit
 
     sources = enabled_sources()
     started = time.time()
