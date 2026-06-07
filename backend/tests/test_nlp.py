@@ -62,6 +62,22 @@ def test_build_trends_structure_and_sentiment():
     assert "sentiment" in cats["BUSINESS"]
 
 
+def test_topic_clustering_separates_themes():
+    arts = _arts([("삼성전자 AI 반도체", "TECHNOLOGY"),
+                  ("엔비디아 AI 반도체 수요", "TECHNOLOGY"),
+                  ("AI 반도체 엔비디아 공급", "TECHNOLOGY"),
+                  ("기준금리 물가 한국은행", "BUSINESS"),
+                  ("한국은행 금리 물가 동결", "BUSINESS"),
+                  ("금리 물가 인상 우려", "BUSINESS")])
+    tr = build_trends(arts, min_freq=1, max_kw=40)
+    assert len(tr["clusters"]) >= 2
+    cl_of = {k["id"]: k["cluster"] for k in tr["kws"]}
+    # 같은 토픽은 같은 군집, 다른 토픽은 다른 군집
+    assert cl_of["AI"] == cl_of["반도체"]
+    assert cl_of["금리"] == cl_of["물가"]
+    assert cl_of["AI"] != cl_of["금리"]
+
+
 def test_compute_rising_detects_new_keyword():
     now = time.time()
     mid = now - 6 * 3600

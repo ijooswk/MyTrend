@@ -144,6 +144,45 @@ def tokenize(title: str) -> list[str]:
     return out
 
 
+def detect_clusters(node_ids: list[str], links: list[dict]) -> dict[str, int]:
+    """동시출현 그래프에 라벨 전파(label propagation)로 토픽 군집 검출.
+
+    결정적(deterministic): 노드 정렬 + 동점 시 라벨 사전순 최소.
+    반환: keyword -> cluster index(0=가장 큰 군집). 고립 노드는 자기 자신 군집.
+    """
+    adj: dict[str, dict[str, float]] = defaultdict(dict)
+    for l in links:
+        s, t, w = l["source"], l["target"], float(l["value"])
+        adj[s][t] = adj[s].get(t, 0) + w
+        adj[t][s] = adj[t].get(s, 0) + w
+    label = {n: n for n in node_ids}
+    order = sorted(node_ids)
+    for _ in range(15):
+        changed = False
+        for n in order:
+            if not adj.get(n):
+                continue
+            score: dict[str, float] = defaultdict(float)
+            for m, w in adj[n].items():
+                score[label[m]] += w
+            mx = max(score.values())
+            best = min(lb for lb, sc in score.items() if sc == mx)  # 동점 → 사전순
+            if label[n] != best:
+                label[n] = best
+                changed = True
+        if not changed:
+            break
+    groups: dict[str, list[str]] = defaultdict(list)
+    for n, lb in label.items():
+        groups[lb].append(n)
+    ordered = sorted(groups.values(), key=lambda g: (-len(g), g[0]))
+    cid: dict[str, int] = {}
+    for i, g in enumerate(ordered):
+        for n in g:
+            cid[n] = i
+    return cid
+
+
 def compute_rising(articles: list, mid_ts: float, *, top: int = 15,
                    min_recent: int = 2) -> list[dict]:
     """시간창을 둘로 나눠 최근 절반에서 급상승한 키워드를 산출.
@@ -239,6 +278,25 @@ def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict
         if c >= co_min and x in keep and y in keep:
             links.append({"source": x, "target": y, "value": c})
 
+    # 토픽 군집(커뮤니티) 검출 후 노드에 부여
+    cid = detect_clusters(ranked, links)
+    cl_members: dict[int, list[dict]] = defaultdict(list)
+    for nd in nodes:
+        nd["cluster"] = cid.get(nd["id"], -1)
+        cl_members[nd["cluster"]].append(nd)
+    clusters = []
+    for c_id, members in cl_members.items():
+        if len(members) < 2:                      # 단일 키워드 군집은 요약에서 제외
+            continue
+        members.sort(key=lambda m: m["freq"], reverse=True)
+        clusters.append({
+            "id": c_id,
+            "size": len(members),
+            "keywords": [m["id"] for m in members[:6]],
+            "cat": Counter(m["cat"] for m in members).most_common(1)[0][0],
+        })
+    clusters.sort(key=lambda c: c["size"], reverse=True)
+
     # 분야별 집계 (건수 + 평균 감성)
     by_cat = Counter(g(a, "category") for a in articles)
     cat_summary = [
@@ -251,6 +309,7 @@ def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict
     return {
         "kws": nodes,
         "links": links,
+        "clusters": clusters,
         "categorySummary": cat_summary,
         "articleCount": len(articles),
         "sentimentOverall": overall,
