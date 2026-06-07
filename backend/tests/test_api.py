@@ -1,0 +1,47 @@
+"""DB·검색 라우팅·API 엔드포인트 테스트."""
+import os
+import time
+
+os.environ.setdefault("MYTREND_INGEST_ON_START", "false")
+os.environ.setdefault("MYTREND_INGEST_INTERVAL_MIN", "0")
+os.environ["MYTREND_DB_PATH"] = ":memory:"
+
+from app.db import DB, Article
+from app.search import eodhd_query_mode
+
+
+def test_db_upsert_dedup_and_query():
+    db = DB(":memory:")
+    now = time.time()
+    a = Article(id="x1", title="t", url="u", source="rss", publisher="p",
+                category="TECHNOLOGY", region="KR", lang="ko",
+                published_at=now, fetched_at=now)
+    db.upsert_many([a])
+    db.upsert_many([a])                      # 중복 → 1건 유지
+    rows = db.query(since=now - 3600)
+    assert len(rows) == 1
+    assert db.query(since=now - 3600, categories=["BUSINESS"]) == []
+
+
+def test_eodhd_query_mode_ticker_vs_tag():
+    assert eodhd_query_mode("AAPL") == "s"
+    assert eodhd_query_mode("TSLA.US") == "s"
+    assert eodhd_query_mode("AI") == "s"
+    assert eodhd_query_mode("artificial intelligence") == "t"   # 공백 → 태그
+    assert eodhd_query_mode("삼성전자") == "t"                   # 비ASCII → 태그
+
+
+def test_endpoints_smoke():
+    from fastapi.testclient import TestClient
+    from app import main as m
+    with TestClient(m.app) as c:
+        assert c.get("/api/health").json() == {"ok": True}
+        cfg = c.get("/api/config").json()
+        ids = [x["id"] for x in cfg["categories"]]
+        assert {"BUSINESS", "HEALTH", "SPORTS", "ENTERTAINMENT", "SEARCH"} <= set(ids)
+        # 트렌드(live=false, 빈 DB) 200
+        assert c.get("/api/trends", params={"categories": ["TECHNOLOGY"],
+                     "regions": ["KR"], "live": "false"}).status_code == 200
+        # 내보내기 CSV 200
+        r = c.get("/api/export", params={"fmt": "csv", "live": "false"})
+        assert r.status_code == 200 and "keyword" in r.text

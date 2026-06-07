@@ -104,6 +104,11 @@ async def _tavily(client: httpx.AsyncClient, query: str, regions: list[str],
     return out
 
 
+def eodhd_query_mode(q: str) -> str:
+    """EODHD 검색 시 's'(티커) vs 't'(태그) 결정. 영문/점, 공백 없음 → 티커."""
+    return "s" if re.fullmatch(r"[A-Za-z][A-Za-z.\-]{0,11}", (q or "").strip()) else "t"
+
+
 async def _eodhd(client: httpx.AsyncClient, query: str, hours: int,
                  limit: int) -> list[Article]:
     """EODHD 금융뉴스 검색. 질의가 티커형이면 s=, 아니면 t=태그 로 조회."""
@@ -114,7 +119,7 @@ async def _eodhd(client: httpx.AsyncClient, query: str, hours: int,
     days = max(1, math.ceil(hours / 24))
     frm = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
     params = {"api_token": key, "limit": min(max(limit, 1), 1000), "fmt": "json", "from": frm}
-    if re.fullmatch(r"[A-Za-z][A-Za-z.\-]{0,11}", q):   # 티커형(영문/점, 공백 없음)
+    if eodhd_query_mode(q) == "s":                        # 티커형(영문/점, 공백 없음)
         params["s"] = q.upper()
     else:                                                # 그 외는 토픽 태그(AI 자동태그 지원)
         params["t"] = q
