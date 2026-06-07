@@ -144,6 +144,45 @@ def tokenize(title: str) -> list[str]:
     return out
 
 
+def compute_rising(articles: list, mid_ts: float, *, top: int = 15,
+                   min_recent: int = 2) -> list[dict]:
+    """시간창을 둘로 나눠 최근 절반에서 급상승한 키워드를 산출.
+
+    score = (recent - prev) / (prev + 1).  prev==0 이면 신규 급부상(isNew).
+    """
+    def g(a, k):
+        return getattr(a, k) if not isinstance(a, dict) else a[k]
+
+    recent: Counter = Counter()
+    prev: Counter = Counter()
+    catc: dict[str, Counter] = defaultdict(Counter)
+    for a in articles:
+        ts = g(a, "published_at")
+        toks = set(tokenize(g(a, "title")))
+        is_recent = ts >= mid_ts
+        for w in toks:
+            if is_recent:
+                recent[w] += 1
+                catc[w][g(a, "category")] += 1
+            else:
+                prev[w] += 1
+    rising = []
+    for w, rc in recent.items():
+        if rc < min_recent:
+            continue
+        pc = prev.get(w, 0)
+        if rc <= pc:
+            continue
+        rising.append({
+            "id": w, "recent": rc, "prev": pc, "growth": rc - pc,
+            "score": round((rc - pc) / (pc + 1), 2),
+            "cat": catc[w].most_common(1)[0][0] if catc[w] else None,
+            "isNew": pc == 0,
+        })
+    rising.sort(key=lambda x: (x["score"], x["growth"]), reverse=True)
+    return rising[:top]
+
+
 def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict:
     """기사 리스트 → 트렌드 맵 JSON(nodes/links + 분야 집계).
 

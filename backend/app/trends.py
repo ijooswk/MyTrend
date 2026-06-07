@@ -7,7 +7,7 @@ import time
 from .config import CATEGORY_IDS, REGION_IDS, get_settings
 from .db import DB
 from .ingest import run_ingest
-from .nlp import build_trends
+from .nlp import build_trends, compute_rising
 
 # 간단한 인메모리 캐시: key -> (expire_ts, payload)
 _CACHE: dict[str, tuple[float, dict]] = {}
@@ -55,6 +55,7 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
         backfilled = True
 
     payload = build_trends(arts, min_freq=min_freq, max_kw=max_kw)
+    payload["rising"] = compute_rising(arts, now - (hours / 2) * 3600)
     payload.update({
         "cache": "backfill" if backfilled else "miss",
         "window_hours": hours,
