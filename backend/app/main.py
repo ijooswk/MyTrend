@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from . import ai
 from .config import DISPLAY_CATEGORIES, REGIONS, get_settings
 from .db import DB
 from .ingest import run_ingest
@@ -192,6 +193,100 @@ async def api_export(
     w.writerows(rows)
     return Response(content=buf.getvalue(), media_type="text/csv; charset=utf-8",
                     headers={"Content-Disposition": "attachment; filename=mytrend_keywords.csv"})
+
+
+@app.get("/api/ai/status")
+def api_ai_status():
+    """AI 사용 가능 여부와 모델."""
+    return {"enabled": ai.ai_enabled(),
+            "model": get_settings().mytrend_ai_model if ai.ai_enabled() else None}
+
+
+async def _trend_for_ai(categories, regions, sources, hours):
+    return await get_trends(state["db"], categories=categories, regions=regions,
+                            sources=sources, hours=hours, min_freq=1, max_kw=60, live=False)
+
+
+@app.post("/api/ai/briefing")
+async def api_ai_briefing(
+    lang: str = Query("ko", pattern="^(ko|en)$"),
+    categories: list[str] | None = Query(None),
+    regions: list[str] | None = Query(None),
+    sources: list[str] | None = Query(None),
+    hours: int = Query(24, ge=1, le=168),
+):
+    """현재 트렌드를 자연어 브리핑으로 생성(온디맨드)."""
+    if not ai.ai_enabled():
+        return JSONResponse({"error": "AI disabled (no OpenRouter key)"}, status_code=503)
+    data = await _trend_for_ai(categories, regions, sources, hours)
+    if not data.get("kws"):
+        return JSONResponse({"error": "no trend data"}, status_code=409)
+    ck = ("brief", lang, [k["id"] for k in data["kws"][:25]], data.get("sentimentOverall"))
+    cached = ai.cache_get(*ck)
+    if cached:
+        return {"text": cached, "cached": True}
+    try:
+        text = await ai.chat(ai.build_briefing_messages(data, lang), temperature=0.4)
+    except ai.AIUnavailable as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    ai.cache_put(text, *ck)
+    return {"text": text, "cached": False}
+
+
+@app.post("/api/ai/label-clusters")
+async def api_ai_labels(
+    lang: str = Query("ko", pattern="^(ko|en)$"),
+    categories: list[str] | None = Query(None),
+    regions: list[str] | None = Query(None),
+    sources: list[str] | None = Query(None),
+    hours: int = Query(24, ge=1, le=168),
+):
+    """토픽 군집에 짧은 테마 라벨을 부여."""
+    if not ai.ai_enabled():
+        return JSONResponse({"error": "AI disabled (no OpenRouter key)"}, status_code=503)
+    data = await _trend_for_ai(categories, regions, sources, hours)
+    clusters = data.get("clusters", [])
+    if not clusters:
+        return {"labels": {}}
+    ck = ("labels", lang, [(c["id"], tuple(c["keywords"])) for c in clusters])
+    cached = ai.cache_get(*ck)
+    if cached:
+        return {"labels": ai.parse_labels(cached), "cached": True}
+    try:
+        text = await ai.chat(ai.build_label_messages(clusters, lang), temperature=0.2)
+    except ai.AIUnavailable as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    ai.cache_put(text, *ck)
+    return {"labels": ai.parse_labels(text), "cached": False}
+
+
+@app.post("/api/ai/ask")
+async def api_ai_ask(
+    q: str = Query(..., min_length=2),
+    lang: str = Query("ko", pattern="^(ko|en)$"),
+    categories: list[str] | None = Query(None),
+    regions: list[str] | None = Query(None),
+    sources: list[str] | None = Query(None),
+    hours: int = Query(24, ge=1, le=168),
+):
+    """현재 기사 제목을 근거로 질문에 답변(RAG-lite)."""
+    if not ai.ai_enabled():
+        return JSONResponse({"error": "AI disabled (no OpenRouter key)"}, status_code=503)
+    import time as _t
+    arts = state["db"].query(since=_t.time() - hours * 3600, categories=categories,
+                             regions=regions, sources=sources, limit=80)
+    if not arts:
+        return JSONResponse({"error": "no articles in window"}, status_code=409)
+    ck = ("ask", lang, q, len(arts), arts[0].id if arts else "")
+    cached = ai.cache_get(*ck)
+    if cached:
+        return {"answer": cached, "cached": True, "evidence": len(arts)}
+    try:
+        text = await ai.chat(ai.build_qa_messages(q, arts, lang), temperature=0.3)
+    except ai.AIUnavailable as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    ai.cache_put(text, *ck)
+    return {"answer": text, "cached": False, "evidence": len(arts)}
 
 
 @app.get("/api/stats")

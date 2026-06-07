@@ -1,0 +1,92 @@
+"""AI 레이어 테스트 — 실제 네트워크 호출 없이 chat 을 목(mock)으로 대체."""
+import os
+import time
+
+os.environ.setdefault("MYTREND_INGEST_ON_START", "false")
+os.environ.setdefault("MYTREND_INGEST_INTERVAL_MIN", "0")
+os.environ["MYTREND_DB_PATH"] = ":memory:"
+
+from app import ai
+from app.db import Article
+
+
+def _payload():
+    return {
+        "kws": [{"id": "AI", "freq": 5, "cat": "TECHNOLOGY", "sent": 0.3},
+                {"id": "반도체", "freq": 4, "cat": "TECHNOLOGY", "sent": 0.2}],
+        "rising": [{"id": "AI", "score": 4.0, "isNew": True}],
+        "categorySummary": [{"id": "TECHNOLOGY", "ko": "테크", "count": 6, "sentiment": 0.25}],
+        "clusters": [{"id": 0, "size": 3, "keywords": ["AI", "반도체", "엔비디아"], "cat": "TECHNOLOGY"}],
+        "sentimentOverall": 0.25, "articleCount": 6,
+    }
+
+
+def test_prompt_builders_contain_data():
+    msgs = ai.build_briefing_messages(_payload(), "ko")
+    assert msgs[0]["role"] == "system" and "Korean" in msgs[0]["content"]
+    assert "AI" in msgs[1]["content"] and "반도체" in msgs[1]["content"]
+    lab = ai.build_label_messages(_payload()["clusters"], "en")
+    assert "JSON" in lab[0]["content"] and "엔비디아" in lab[1]["content"]
+
+
+def test_parse_labels_extracts_json():
+    txt = 'Sure! [{"id":0,"label":"AI 반도체 경쟁"},{"id":1,"label":"금리"}] done'
+    labels = ai.parse_labels(txt)
+    assert labels == {0: "AI 반도체 경쟁", 1: "금리"}
+    assert ai.parse_labels("no json here") == {}
+
+
+def test_ai_routes_gated_when_disabled(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main as m
+    monkeypatch.setattr(ai, "ai_enabled", lambda: False)
+    with TestClient(m.app) as c:
+        assert c.get("/api/ai/status").json()["enabled"] is False
+        assert c.post("/api/ai/briefing").status_code == 503
+        assert c.post("/api/ai/ask", params={"q": "왜?"}).status_code == 503
+
+
+def test_ai_briefing_with_mocked_chat(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main as m
+
+    async def fake_chat(messages, **kw):
+        return "• 테크 분야가 가장 활발합니다.\n• AI가 급상승."
+
+    monkeypatch.setattr(ai, "ai_enabled", lambda: True)
+    monkeypatch.setattr(ai, "chat", fake_chat)
+    with TestClient(m.app) as c:
+        now = time.time()
+        m.state["db"].upsert_many([Article(
+            id=f"x{i}", title=t, url="u", source="rss", publisher="p",
+            category="TECHNOLOGY", region="KR", lang="ko",
+            published_at=now - 600, fetched_at=now)
+            for i, t in enumerate(["삼성전자 AI 반도체 급등", "엔비디아 AI 반도체 수요"])])
+        r = c.post("/api/ai/briefing", params={"lang": "ko", "categories": ["TECHNOLOGY"],
+                                               "regions": ["KR"], "hours": 24})
+        assert r.status_code == 200 and "AI" in r.json()["text"]
+        # 두 번째 호출은 캐시 히트
+        r2 = c.post("/api/ai/briefing", params={"lang": "ko", "categories": ["TECHNOLOGY"],
+                                                "regions": ["KR"], "hours": 24})
+        assert r2.json()["cached"] is True
+
+
+def test_ai_ask_with_mocked_chat(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main as m
+
+    async def fake_chat(messages, **kw):
+        assert any("Question:" in mm["content"] for mm in messages)
+        return "반도체 수요 급증이 원인입니다."
+
+    monkeypatch.setattr(ai, "ai_enabled", lambda: True)
+    monkeypatch.setattr(ai, "chat", fake_chat)
+    with TestClient(m.app) as c:
+        now = time.time()
+        m.state["db"].upsert_many([Article(
+            id="q1", title="엔비디아 AI 반도체 수요 급증", url="u", source="rss",
+            publisher="p", category="TECHNOLOGY", region="KR", lang="ko",
+            published_at=now - 600, fetched_at=now)])
+        r = c.post("/api/ai/ask", params={"q": "왜 반도체가 올랐나?", "regions": ["KR"]})
+        assert r.status_code == 200 and "반도체" in r.json()["answer"]
+        assert r.json()["evidence"] >= 1
