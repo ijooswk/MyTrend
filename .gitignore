@@ -1,0 +1,14 @@
+# 비밀/자격증명
+deploy.env
+.env
+backend/.env
+
+# 파이썬
+__pycache__/
+*.pyc
+backend/.venv/
+
+# 데이터/로그
+*.db
+data/
+*.log
