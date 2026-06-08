@@ -8,6 +8,7 @@ from pathlib import Path
 
 import csv
 import io
+from collections import Counter
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -153,6 +154,58 @@ def api_timeline(
                              regions=regions, sources=sources)
     return JSONResponse(build_timeline(arts, hours=hours, buckets=buckets,
                                        keyword=keyword))
+
+
+@app.get("/api/correlation")
+async def api_correlation(
+    metric: str = Query("npmi", pattern="^(npmi|temporal)$"),
+    categories: list[str] | None = Query(None),
+    regions: list[str] | None = Query(None),
+    sources: list[str] | None = Query(None),
+    hours: int = Query(24, ge=2, le=168),
+    top: int = Query(18, ge=4, le=40),
+    buckets: int = Query(24, ge=4, le=96),
+):
+    """상위 키워드 간 상관 행렬(히트맵용).
+
+    metric=npmi: 동시출현 연관도 / metric=temporal: 시계열 동조 상관.
+    """
+    import time as _t
+    from . import assoc
+    from .nlp import tokenize
+    from .timeline import build_timeline
+    since = _t.time() - hours * 3600
+    arts = state["db"].query(since=since, categories=categories,
+                             regions=regions, sources=sources)
+    # 상위 키워드(제목 빈도)
+    freq = Counter()
+    for a in arts:
+        for w in set(tokenize(a.title)):
+            freq[w] += 1
+    keywords = [w for w, _ in freq.most_common(top)]
+    if not keywords:
+        return {"metric": metric, "keywords": [], "matrix": [], "labels": {}}
+
+    if metric == "npmi":
+        n, f, co = assoc.cooccur_stats(arts, keywords)
+        idx = {k: i for i, k in enumerate(keywords)}
+        m = [[1.0 if i == j else 0.0 for j in range(len(keywords))] for i in range(len(keywords))]
+        for (x, y), c in co.items():
+            if x in idx and y in idx and c >= 1:
+                v = round(assoc.npmi(n, f[x], f[y], c), 3)
+                m[idx[x]][idx[y]] = v
+                m[idx[y]][idx[x]] = v
+        matrix = m
+    else:
+        tl = build_timeline(arts, hours=hours, buckets=buckets)
+        # 상위 키워드에 대한 시계열만 별도 산출
+        series = {}
+        for kw in keywords:
+            series[kw] = build_timeline(arts, hours=hours, buckets=buckets, keyword=kw)["series"].get(kw, [0] * buckets)
+        matrix = assoc.correlation_matrix(series, keywords)
+
+    return {"metric": metric, "keywords": keywords, "matrix": matrix,
+            "labels": {w: w for w in keywords}}
 
 
 @app.get("/api/export")

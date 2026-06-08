@@ -48,3 +48,6 @@ def test_endpoints_smoke():
         # 타임라인 200 + 스키마
         tl = c.get("/api/timeline", params={"hours": 24, "buckets": 12}).json()
         assert len(tl["buckets"]) == 12 and "series" in tl and "total" in tl
+        # 상관 행렬 200 + 스키마(빈 DB → 빈 행렬)
+        cor = c.get("/api/correlation", params={"metric": "npmi", "top": 10}).json()
+        assert cor["metric"] == "npmi" and "matrix" in cor and "keywords" in cor
