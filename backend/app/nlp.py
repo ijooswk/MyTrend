@@ -222,6 +222,46 @@ def compute_rising(articles: list, mid_ts: float, *, top: int = 15,
     return rising[:top]
 
 
+def compute_radar(articles: list, nodes: list[dict], links: list[dict],
+                  mid_ts: float) -> list[dict]:
+    """트렌드 레이더: 키워드를 모멘텀(x)×볼륨(y) 사분면에 배치.
+
+    사분면: hot(주목, 高볼륨·上승), emerging(부상, 低볼륨·上승),
+            established(정착, 高볼륨·停滯), fading(쇠퇴, 低볼륨·下락).
+    """
+    from statistics import median
+
+    def g(a, k):
+        return getattr(a, k) if not isinstance(a, dict) else a[k]
+
+    ids = {n["id"] for n in nodes}
+    recent: Counter = Counter()
+    prev: Counter = Counter()
+    for a in articles:
+        toks = set(tokenize(g(a, "title"))) & ids
+        bucket = recent if g(a, "published_at") >= mid_ts else prev
+        for w in toks:
+            bucket[w] += 1
+    deg: Counter = Counter()
+    for l in links:
+        deg[l["source"]] += 1
+        deg[l["target"]] += 1
+    vmed = median([n["freq"] for n in nodes]) if nodes else 1
+    out = []
+    for n in nodes:
+        rc, pc = recent.get(n["id"], 0), prev.get(n["id"], 0)
+        mom = round((rc - pc) / (rc + pc + 1), 3)          # -1..1
+        hi = n["freq"] >= vmed
+        if mom > 0.05:
+            q = "hot" if hi else "emerging"
+        else:
+            q = "established" if hi else "fading"
+        out.append({"id": n["id"], "volume": n["freq"], "momentum": mom,
+                    "degree": deg.get(n["id"], 0), "sent": n.get("sent", 0),
+                    "cat": n["cat"], "cluster": n.get("cluster", -1), "quadrant": q})
+    return out
+
+
 def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80,
                  assoc_threshold: float = 0.2) -> dict:
     """기사 리스트 → 트렌드 맵 JSON(nodes/links + 분야 집계).

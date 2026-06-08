@@ -1,7 +1,7 @@
 """키워드 추출·복합명사·감성 단위테스트."""
 import time
 
-from app.nlp import tokenize, build_trends, compute_rising
+from app.nlp import tokenize, build_trends, compute_rising, compute_radar
 from app.sentiment import score_text, label
 
 
@@ -60,6 +60,26 @@ def test_build_trends_structure_and_sentiment():
     cats = {c["id"]: c for c in tr["categorySummary"]}
     assert cats["TECHNOLOGY"]["count"] == 2
     assert "sentiment" in cats["BUSINESS"]
+
+
+def test_radar_quadrant_classification():
+    import time
+    now = time.time()
+    mid = now - 6 * 3600
+
+    def mk(t, ts):
+        from app.db import Article
+        return Article(id=t + str(ts), title=t, url="u", source="s", publisher="p",
+                       category="T", region="KR", lang="ko",
+                       published_at=ts, fetched_at=now, summary="")
+    arts = [mk("반도체 업황", mid - 3600) for _ in range(5)]          # 과거 다수
+    arts += [mk("AI 에이전트 신규 부상", mid + 1800) for _ in range(3)]  # 최근 신규
+    tr = build_trends(arts, min_freq=1, max_kw=30, assoc_threshold=0.1)
+    radar = {r["id"]: r for r in compute_radar(arts, tr["kws"], tr["links"], mid)}
+    assert radar["AI"]["momentum"] > 0 and radar["AI"]["quadrant"] in ("hot", "emerging")
+    assert radar["반도체"]["momentum"] < 0          # 최근 등장 감소 → 하락
+    assert all(q["quadrant"] in ("hot", "emerging", "established", "fading")
+               for q in radar.values())
 
 
 def test_topic_clustering_separates_themes():

@@ -8,7 +8,7 @@ from .config import CATEGORY_IDS, REGION_IDS, get_settings
 from .db import DB
 from .ingest import run_ingest
 from .insights import make_insights
-from .nlp import build_trends, compute_rising
+from .nlp import build_trends, compute_rising, compute_radar
 
 # 간단한 인메모리 캐시: key -> (expire_ts, payload)
 _CACHE: dict[str, tuple[float, dict]] = {}
@@ -58,7 +58,9 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
 
     payload = build_trends(arts, min_freq=min_freq, max_kw=max_kw,
                            assoc_threshold=assoc_threshold)
-    payload["rising"] = compute_rising(arts, now - (hours / 2) * 3600)
+    mid = now - (hours / 2) * 3600
+    payload["rising"] = compute_rising(arts, mid)
+    payload["radar"] = compute_radar(arts, payload["kws"], payload["links"], mid)
     payload["insights"] = make_insights(payload)
     payload.update({
         "cache": "backfill" if backfilled else "miss",
