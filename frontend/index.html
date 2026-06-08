@@ -796,37 +796,36 @@ function drawBubble(data){
   const el=$("bubbleSvg"),W=el.clientWidth,H=el.clientHeight;
   const active=CATS.filter(c=>data.kws.some(k=>k.cat===c.id));
   if(!active.length)return;
-  const colW=W/active.length,pad=10,xOf={};active.forEach((c,i)=>xOf[c.id]=colW*i+colW/2);
+  const colW=W/active.length,xOf={},sInk=CV("--stageInk"),sStroke=CV("--stageStroke");
+  active.forEach((c,i)=>xOf[c.id]=colW*i+colW/2);
   const g=svg.append("g");
-  // 분야 레인 배경 + 헤더 pill
+  // 분야 헤더 + 얇은 구분선(네트워크처럼 미니멀)
   active.forEach((c,i)=>{
-    g.append("rect").attr("x",colW*i+pad/2).attr("y",8).attr("width",colW-pad).attr("height",H-16).attr("rx",16)
-      .attr("fill",c.color).attr("fill-opacity",.05).attr("stroke",c.color).attr("stroke-opacity",.18);
+    if(i>0)g.append("line").attr("x1",colW*i).attr("x2",colW*i).attr("y1",30).attr("y2",H-8)
+      .attr("stroke",CV("--line")).attr("stroke-opacity",.45);
     const cnt=((data.categorySummary||[]).find(s=>s.id===c.id)||{}).count||data.kws.filter(k=>k.cat===c.id).length;
-    const pill=g.append("g").attr("transform",`translate(${colW*i+colW/2},28)`);
-    pill.append("rect").attr("x",-52).attr("y",-14).attr("width",104).attr("height",26).attr("rx",13)
-      .attr("fill",c.color).attr("filter",`url(#${FD.drop})`);
-    pill.append("text").attr("text-anchor","middle").attr("dy",".32em").attr("fill","#0b0d13")
-      .attr("font-weight",800).attr("font-size",12.5).text(`${lang==="ko"?c.ko:c.en} · ${cnt}`);
+    g.append("text").attr("x",xOf[c.id]).attr("y",22).attr("text-anchor","middle")
+      .attr("fill",c.color).attr("font-weight",800).attr("font-size",14).text(`${lang==="ko"?c.ko:c.en} · ${cnt}`);
   });
-  const mx=d3.max(data.kws,d=>d.freq)||1,rOf=d=>9+26*Math.sqrt(d.freq/mx);
+  const mx=d3.max(data.kws,d=>d.freq)||1,rOf=d=>9+25*Math.sqrt(d.freq/mx);
   const nodes=data.kws.map(d=>({...d}));
   const sim=d3.forceSimulation(nodes).force("x",d3.forceX(d=>xOf[d.cat]||W/2).strength(.55))
-    .force("y",d3.forceY(H/2+26).strength(.05)).force("collide",d3.forceCollide(d=>rOf(d)+2)).stop();
+    .force("y",d3.forceY(H/2+18).strength(.05)).force("collide",d3.forceCollide(d=>rOf(d)+2)).stop();
   for(let i=0;i<300;i++)sim.tick();
-  nodes.forEach(n=>{const i=Math.max(0,active.findIndex(c=>c.id===n.cat));const lx=colW*i+pad,rx=colW*i+colW-pad;
-    n.x=Math.max(lx+rOf(n),Math.min(rx-rOf(n),n.x));n.y=Math.max(52+rOf(n),Math.min(H-10-rOf(n),n.y));});
+  nodes.forEach(n=>{const i=Math.max(0,active.findIndex(c=>c.id===n.cat));const lx=colW*i+6,rx=colW*i+colW-6;
+    n.x=Math.max(lx+rOf(n),Math.min(rx-rOf(n),n.x));n.y=Math.max(40+rOf(n),Math.min(H-10-rOf(n),n.y));});
   const node=g.selectAll("g.bn").data(nodes).join("g").attr("class","bn").style("cursor","pointer")
     .attr("transform",d=>`translate(${d.x},${d.y})`);
-  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("filter",`url(#${FD.drop})`);
-  node.append("circle").attr("r",rOf).attr("fill",`url(#${FD.gloss})`).attr("pointer-events","none");
-  node.append("text").attr("dy",".32em").attr("text-anchor","middle").attr("fill","#0b0d13")
-    .attr("font-weight",800).attr("font-size",d=>Math.min(13,rOf(d)*.62))
-    .style("display",d=>rOf(d)>16?null:"none").text(d=>d.id);
-  node.on("mouseover",function(e,d){d3.select(this).raise().selectAll("circle").attr("transform","scale(1.13)");
+  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("fill-opacity",.92)
+    .attr("stroke",sStroke).attr("stroke-width",1.5).attr("filter",`url(#${FD.glow})`);
+  node.append("text").attr("dy",".32em").attr("text-anchor","middle").attr("fill",sInk)
+    .attr("stroke",sStroke).attr("stroke-width",3).attr("paint-order","stroke")
+    .attr("font-weight",700).attr("font-size",d=>Math.min(13,rOf(d)*.6))
+    .style("display",d=>rOf(d)>15?null:"none").text(d=>d.id);
+  node.on("mouseover",function(e,d){d3.select(this).raise().select("circle").attr("stroke-width",2.6);
       showTip(`<b>${d.id}</b> — ${d.freq} · ${catLabel(d.cat)} · ${sentWord(d.sent||0)}`,e);})
    .on("mousemove",moveTip)
-   .on("mouseout",function(){d3.select(this).selectAll("circle").attr("transform",null);hideTip();})
+   .on("mouseout",function(){d3.select(this).select("circle").attr("stroke-width",1.5);hideTip();})
    .on("click",(e,d)=>openKeyword(d.id));
 }
 
@@ -839,28 +838,29 @@ function drawTreemap(data){
   const root={name:"root",children:[...byCat].map(([cat,kws])=>
     ({name:cat,cat,children:kws.map(k=>({name:k.id,value:k.freq,d:k}))}))};
   const h=d3.hierarchy(root).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
-  d3.treemap().tile(d3.treemapSquarify.ratio(1)).size([W,H]).paddingInner(3).paddingTop(24).paddingOuter(3).round(true)(h);
-  const g=svg.append("g");
+  d3.treemap().tile(d3.treemapSquarify.ratio(1)).size([W,H]).paddingInner(4).paddingTop(24).paddingOuter(3).round(true)(h);
+  const g=svg.append("g"),sInk=CV("--stageInk"),sStroke=CV("--stageStroke");
   const cell=g.selectAll("g.cell").data(h.leaves()).join("g").attr("class","cell")
     .attr("transform",d=>`translate(${d.x0},${d.y0})`).style("cursor","pointer");
+  // 네트워크처럼 글로우 발광 타일(라운드)
   cell.append("rect").attr("rx",6).attr("height",d=>d.y1-d.y0).attr("width",d=>d.x1-d.x0)
-    .attr("fill",d=>nodeColor(d.data.d)).attr("filter",`url(#${FD.drop})`);
-  cell.append("rect").attr("rx",6).attr("width",d=>d.x1-d.x0).attr("height",d=>Math.min(d.y1-d.y0,(d.y1-d.y0)*.58))
-    .attr("fill",`url(#${FD.gloss})`).attr("pointer-events","none");
-  cell.append("text").attr("x",7).attr("y",16).attr("fill","#0b0d13").attr("font-weight",800).attr("font-size",11.5)
-    .text(d=>d.data.name).each(function(d){if(d.x1-d.x0<34||d.y1-d.y0<20)d3.select(this).style("display","none");});
-  cell.append("text").attr("x",7).attr("y",30).attr("fill","#0b0d13").attr("fill-opacity",.65).attr("font-size",10)
-    .attr("font-weight",700).text(d=>d.data.value)
-    .each(function(d){if(d.x1-d.x0<34||d.y1-d.y0<36)d3.select(this).style("display","none");});
+    .attr("fill",d=>nodeColor(d.data.d)).attr("fill-opacity",.9)
+    .attr("stroke",sStroke).attr("stroke-width",1.3).attr("filter",`url(#${FD.glow})`);
+  // 헤일로 라벨(네트워크와 동일한 스타일)
+  cell.append("text").attr("x",8).attr("y",17).attr("fill",sInk).attr("stroke",sStroke).attr("stroke-width",3)
+    .attr("paint-order","stroke").attr("font-weight",800).attr("font-size",12)
+    .text(d=>d.data.name).each(function(d){if(d.x1-d.x0<36||d.y1-d.y0<22)d3.select(this).style("display","none");});
+  cell.append("text").attr("x",8).attr("y",32).attr("fill",sInk).attr("fill-opacity",.7)
+    .attr("stroke",sStroke).attr("stroke-width",2.5).attr("paint-order","stroke").attr("font-size",10).attr("font-weight",700)
+    .text(d=>d.data.value).each(function(d){if(d.x1-d.x0<36||d.y1-d.y0<38)d3.select(this).style("display","none");});
   // 분야 헤더(상단)
   g.append("g").selectAll("text").data(h.children||[]).join("text")
     .attr("x",d=>d.x0+6).attr("y",d=>d.y0+16).attr("fill",d=>colorOf(d.data.cat))
-    .attr("font-weight",800).attr("font-size",12.5).text(d=>catLabel(d.data.cat));
-  cell.on("mouseover",function(e,d){d3.select(this).raise().select("rect")
-        .attr("stroke",CV("--stageInk")).attr("stroke-width",1.6);
+    .attr("font-weight",800).attr("font-size",13).text(d=>catLabel(d.data.cat));
+  cell.on("mouseover",function(e,d){d3.select(this).raise().select("rect").attr("stroke-width",2.6).attr("fill-opacity",1);
       showTip(`<b>${d.data.name}</b> — ${d.data.value} · ${catLabel(d.data.d.cat)} · ${sentWord(d.data.d.sent||0)}`,e);})
     .on("mousemove",moveTip)
-    .on("mouseout",function(){d3.select(this).select("rect").attr("stroke","none");hideTip();})
+    .on("mouseout",function(){d3.select(this).select("rect").attr("stroke-width",1.3).attr("fill-opacity",.9);hideTip();})
     .on("click",(e,d)=>{if(window.openKeyword)openKeyword(d.data.name);});
 }
 
@@ -1110,16 +1110,16 @@ function drawRadar(data){
   const labelSet=new Set(nodes.slice().sort((a,b)=>(b.volume+b.degree)-(a.volume+a.degree)).slice(0,28).map(n=>n.id));
   const node=g.selectAll("g.rn").data(nodes).join("g").attr("class","rn").style("cursor","pointer")
     .attr("transform",d=>`translate(${d.x},${d.y})`);
-  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("filter",`url(#${FD.drop})`);
-  node.append("circle").attr("r",rOf).attr("fill",`url(#${FD.gloss})`).attr("pointer-events","none");
-  node.append("text").attr("dy",d=>-rOf(d)-3).attr("text-anchor","middle").attr("fill",ink).attr("font-size",11).attr("font-weight",700)
-    .attr("stroke",strk).attr("stroke-width",2.5).attr("paint-order","stroke")
+  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("fill-opacity",.92)
+    .attr("stroke",strk).attr("stroke-width",1.5).attr("filter",`url(#${FD.glow})`);
+  node.append("text").attr("dy",d=>-rOf(d)-4).attr("text-anchor","middle").attr("fill",ink).attr("font-size",11).attr("font-weight",700)
+    .attr("stroke",strk).attr("stroke-width",3).attr("paint-order","stroke")
     .style("display",d=>labelSet.has(d.id)?null:"none").text(d=>d.id);
-  node.on("mouseover",function(e,d){d3.select(this).raise().selectAll("circle").attr("transform","scale(1.18)");
+  node.on("mouseover",function(e,d){d3.select(this).raise().select("circle").attr("stroke-width",2.6);
       d3.select(this).select("text").style("display",null);
       showTip(`<b>${d.id}</b> · ${t("rq_"+d.quadrant)}<br>${lang==="ko"?"볼륨":"vol"} ${d.volume} · ${lang==="ko"?"모멘텀":"mom"} ${d.momentum>0?"+":""}${d.momentum} · ${lang==="ko"?"연결":"links"} ${d.degree}`,e);})
     .on("mousemove",moveTip)
-    .on("mouseout",function(e,d){d3.select(this).selectAll("circle").attr("transform",null);
+    .on("mouseout",function(e,d){d3.select(this).select("circle").attr("stroke-width",1.5);
       if(!labelSet.has(d.id))d3.select(this).select("text").style("display","none");hideTip();})
     .on("click",(e,d)=>openKeyword(d.id));
 }
