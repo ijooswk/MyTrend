@@ -86,7 +86,7 @@
   .iconbtn{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;
     width:34px;height:30px;cursor:pointer;font-size:15px}
   .pane{position:absolute;inset:0;display:none}.pane.active{display:block}
-  #netSvg,#bubbleSvg,#cloudSvg,#treeSvg{width:100%;height:100%;display:block}
+  #netSvg,#bubbleSvg,#cloudSvg,#treeSvg,#heatSvg{width:100%;height:100%;display:block}
   .status{padding:8px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);
     display:flex;align-items:center;gap:10px;min-height:34px;background:var(--panel)}
   .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -211,6 +211,7 @@
       <div class="tab" data-v="cloud" data-i18n="tab_cloud"></div>
       <div class="tab" data-v="bubble" data-i18n="tab_bubble"></div>
       <div class="tab" data-v="tree" data-i18n="tab_tree"></div>
+      <div class="tab" data-v="heat" data-i18n="tab_heat"></div>
       <div class="tab" data-v="rising" data-i18n="tab_rising"></div>
     </div>
     <div class="legend" id="legend"></div>
@@ -227,6 +228,11 @@
       <div class="pane" data-v="cloud"><svg id="cloudSvg"></svg></div>
       <div class="pane" data-v="bubble"><svg id="bubbleSvg"></svg></div>
       <div class="pane" data-v="tree"><svg id="treeSvg"></svg></div>
+      <div class="pane" data-v="heat">
+        <div class="netctrl"><span class="cmode" id="heatMetricCtrl">
+          <button data-hm="npmi" class="on" data-i18n="am_cooccur"></button>
+          <button data-hm="temporal" data-i18n="am_temporal"></button></span></div>
+        <svg id="heatSvg"></svg></div>
       <div class="pane" data-v="rising"><div id="risingWrap"></div></div>
     </div>
     <div class="status" id="status"></div>
@@ -267,7 +273,7 @@ const STR={
     s_hours:"시간 범위 (최근",unit_h:"시간)",s_minfreq:"최소 출현 빈도",s_maxkw:"표시 키워드 수",
     s_count:"뉴스 수 (소스·피드별)",s_assoc:"연관 강도 임계(NPMI)",am_cooccur:"동시출현",am_temporal:"동시추세",
     btn_generate:"트렌드 맵 생성 ▸",btn_ingest:"⟳ 지금 새로 수집",btn_live:"🔴 라이브 자동갱신",
-    tab_net:"🕸 키워드 네트워크",tab_cloud:"☁️ 워드클라우드",tab_bubble:"🫧 분야별 버블",tab_tree:"🟩 트리맵",tab_rising:"📈 급상승",
+    tab_net:"🕸 키워드 네트워크",tab_cloud:"☁️ 워드클라우드",tab_bubble:"🫧 분야별 버블",tab_tree:"🟩 트리맵",tab_heat:"📊 상관 히트맵",tab_rising:"📈 급상승",
     top_kw:"상위 키워드",empty_title:"아직 데이터가 없습니다",
     empty_desc:"설정을 고르고 ‘트렌드 맵 생성’을 누르세요.",
     btn_merge:"이 키워드를 트렌드 맵에 추가",btn_export:"⬇ CSV 내보내기",
@@ -298,7 +304,7 @@ const STR={
     s_hours:"Time window (last",unit_h:"h)",s_minfreq:"Min frequency",s_maxkw:"Max keywords",
     s_count:"News count (per source)",s_assoc:"Association threshold (NPMI)",am_cooccur:"Co-occurrence",am_temporal:"Co-movement",
     btn_generate:"Generate trend map ▸",btn_ingest:"⟳ Fetch now",btn_live:"🔴 Live auto-refresh",
-    tab_net:"🕸 Keyword network",tab_cloud:"☁️ Word cloud",tab_bubble:"🫧 Category bubbles",tab_tree:"🟩 Treemap",tab_rising:"📈 Rising",
+    tab_net:"🕸 Keyword network",tab_cloud:"☁️ Word cloud",tab_bubble:"🫧 Category bubbles",tab_tree:"🟩 Treemap",tab_heat:"📊 Correlation",tab_rising:"📈 Rising",
     top_kw:"Top keywords",empty_title:"No data yet",
     empty_desc:"Pick options and press ‘Generate trend map’.",
     btn_merge:"Add this keyword to the trend map",btn_export:"⬇ Export CSV",
@@ -539,7 +545,7 @@ async function mergeSearch(){
 function redraw(){buildClusterColors(lastData);const v=document.querySelector(".tab.active").dataset.v;
   if(v==="net")drawNetwork(lastData);if(v==="cloud")drawCloud(lastData);
   if(v==="bubble")drawBubble(lastData);if(v==="tree")drawTreemap(lastData);
-  if(v==="rising")drawRising(lastData);}
+  if(v==="heat")drawHeatmap();if(v==="rising")drawRising(lastData);}
 const sentArrow=s=>s>0.05?'<span style="color:var(--ok)">▲</span>':s<-0.05?'<span style="color:var(--err)">▼</span>':'<span style="color:var(--muted)">–</span>';
 const sentWord=s=>s>0.05?t("sent_pos"):s<-0.05?t("sent_neg"):t("sent_neu");
 
@@ -807,6 +813,38 @@ $("aiClose").addEventListener("click",()=>$("aiDrawer").classList.remove("open")
 $("aiBriefBtn").addEventListener("click",genBrief);
 $("aiAskBtn").addEventListener("click",askAI);
 $("aiAskInput").addEventListener("keydown",e=>{if(e.key==="Enter")askAI();});
+
+//──────────── 상관 히트맵 ────────────
+let heatMetric="npmi";
+async function drawHeatmap(){
+  const svg=d3.select("#heatSvg"),el=$("heatSvg"),W=el.clientWidth,H=el.clientHeight;
+  svg.selectAll("*").remove();
+  const p=new URLSearchParams({metric:heatMetric,hours:$("hours").value,top:"18",buckets:"24"});
+  selected("cat").forEach(v=>p.append("categories",v));regionIds().forEach(v=>p.append("regions",v));
+  let data;try{data=await fetch(API+"/api/correlation?"+p).then(r=>r.json());}catch(e){return;}
+  const ks=data.keywords||[],M=data.matrix||[],n=ks.length;
+  if(!n){svg.append("text").attr("x",W/2).attr("y",H/2).attr("text-anchor","middle").attr("fill","var(--muted)").text(t("st_nokw"));return;}
+  const mL=96,mT=96,size=Math.max(12,Math.min((W-mL-16)/n,(H-mT-16)/n,40));
+  const X=i=>mL+i*size,Y=i=>mT+i*size;
+  const pos=d3.interpolateRgb("#1b2130","#34d399"),neg=d3.interpolateRgb("#1b2130","#fb7185");
+  const col=v=>v>=0?pos(Math.min(1,v)):neg(Math.min(1,-v));
+  const cells=[];for(let i=0;i<n;i++)for(let j=0;j<n;j++)cells.push({i,j,v:(M[i]&&M[i][j])||0});
+  const g=svg.append("g");
+  g.selectAll("rect").data(cells).join("rect")
+    .attr("x",d=>X(d.j)).attr("y",d=>Y(d.i)).attr("width",size-1.5).attr("height",size-1.5).attr("rx",2)
+    .attr("fill",d=>col(d.v)).style("cursor","pointer")
+    .on("mouseover",(e,d)=>showTip(`<b>${ks[d.i]} ↔ ${ks[d.j]}</b><br>${heatMetric==="npmi"?"NPMI":(lang==="ko"?"동조":"co-move")} ${d.v.toFixed(2)}`,e))
+    .on("mousemove",moveTip).on("mouseout",hideTip);
+  // 라벨
+  g.selectAll("text.rl").data(ks).join("text").attr("class","rl").attr("x",mL-6).attr("y",(d,i)=>Y(i)+size/2)
+    .attr("text-anchor","end").attr("dominant-baseline","middle").attr("fill","var(--txt)").attr("font-size",Math.min(12,size*.45)).text(d=>d);
+  g.selectAll("text.cl").data(ks).join("text").attr("class","cl")
+    .attr("transform",(d,i)=>`translate(${X(i)+size/2},${mT-6}) rotate(-45)`)
+    .attr("text-anchor","start").attr("fill","var(--txt)").attr("font-size",Math.min(12,size*.45)).text(d=>d);
+}
+$("heatMetricCtrl").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+  heatMetric=b.dataset.hm;$("heatMetricCtrl").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+  drawHeatmap();}));
 
 //════════════════ 이벤트 ════════════════
 $("run").addEventListener("click",run);
