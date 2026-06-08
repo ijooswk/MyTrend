@@ -254,6 +254,7 @@
     <div class="kwsec"><div class="kl" data-i18n="ai_ask_label"></div>
       <div class="searchbox"><input id="aiAskInput" data-i18n-ph="ai_ask_ph"><button id="aiAskBtn" data-i18n="ai_ask_btn"></button></div>
       <div id="aiAnswer" class="aiout"></div></div>
+    <div class="kwsec" id="aiRelateSec" style="display:none"><div class="kl" id="aiRelateTitle"></div><div id="aiRelate" class="aiout"></div></div>
     <div class="aifoot" id="aiModel"></div>
   </div>
 </div>
@@ -615,8 +616,9 @@ function drawNetwork(data){
     .attr("stroke",d=>nodeColor(nById[d.source.id||d.source]||{}))
     .attr("stroke-opacity",d=>.12+.5*(d.npmi||0)).attr("stroke-width",d=>1+4*(d.npmi||0));
   link.on("mouseover",(e,d)=>{const a=d.source.id||d.source,b=d.target.id||d.target;
-    showTip(`<b>${a} ↔ ${b}</b><br>${isTemporal?(lang==="ko"?"동조 상관":"co-movement"):"NPMI"} ${(d.npmi||0).toFixed(2)}${d.count?` · ${lang==="ko"?"공유":"shared"} ${d.count}`:""}`,e);})
-    .on("mousemove",moveTip).on("mouseout",hideTip);
+    showTip(`<b>${a} ↔ ${b}</b><br>${isTemporal?(lang==="ko"?"동조 상관":"co-movement"):"NPMI"} ${(d.npmi||0).toFixed(2)}${d.count?` · ${lang==="ko"?"공유":"shared"} ${d.count}`:""}<br><span style="color:var(--muted)">${lang==="ko"?"클릭: AI 관계 설명":"click: AI explain"}</span>`,e);})
+    .on("mousemove",moveTip).on("mouseout",hideTip)
+    .on("click",(e,d)=>explainPair(d.source.id||d.source,d.target.id||d.target));
   const node=g.append("g").selectAll("g").data(nodes).join("g").style("cursor","pointer").call(drag(netSim));
   node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d))
     .attr("stroke","#0b0e16").attr("stroke-width",1.5).attr("filter","url(#glow)").attr("fill-opacity",.92);
@@ -806,6 +808,16 @@ async function askAI(){
   try{const r=await fetch(API+"/api/ai/ask?"+aiParams({q}),{method:"POST"});
     if(!r.ok){out.textContent=t("ai_err");}
     else{const d=await r.json();out.innerHTML=fmtAI(d.answer)+`<div class="aifoot">${t("ai_evidence",{n:d.evidence})}</div>`;}
+  }catch(e){out.textContent=t("ai_err");}
+}
+async function explainPair(a,b){
+  await openAI();
+  $("aiRelateSec").style.display="block";$("aiRelateTitle").textContent=`${a} ↔ ${b}`;
+  const out=$("aiRelate");
+  if(aiStatus&&!aiStatus.enabled){out.textContent=t("ai_disabled");return;}
+  out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
+  try{const r=await fetch(API+"/api/ai/relate?"+aiParams({a,b}),{method:"POST"});
+    out.innerHTML=r.ok?fmtAI((await r.json()).text):t("ai_err");
   }catch(e){out.textContent=t("ai_err");}
 }
 $("aiBtn").addEventListener("click",openAI);
