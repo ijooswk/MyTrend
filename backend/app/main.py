@@ -466,6 +466,7 @@ def api_stats():
 
 
 @app.get("/api/health")
+@app.get("/health")
 def health():
     return {"ok": True}
 
