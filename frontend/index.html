@@ -644,21 +644,25 @@ function drawRising(data){
   </div>`).join("");
 }
 
+// 각 SVG 마다 '고유 id' 필터/그라데이션을 만들어 반환(동일 id 공유로 인한 렌더 실패 방지).
 function ensureDefs(svg){
-  if(svg.select("defs").size())return;
+  const sid=(svg.node()&&svg.node().id)||"x";
+  const ids={glow:"glow_"+sid,drop:"drop_"+sid,gloss:"gloss_"+sid};
+  if(svg.select("defs").size())return ids;
   const d=svg.append("defs");
-  const f=d.append("filter").attr("id","glow").attr("x","-60%").attr("y","-60%").attr("width","220%").attr("height","220%");
+  const f=d.append("filter").attr("id",ids.glow).attr("x","-60%").attr("y","-60%").attr("width","220%").attr("height","220%");
   f.append("feGaussianBlur").attr("stdDeviation","3.2").attr("result","b");
   const m=f.append("feMerge");m.append("feMergeNode").attr("in","b");m.append("feMergeNode").attr("in","SourceGraphic");
   // 드롭 섀도(입체감)
-  const ds=d.append("filter").attr("id","drop").attr("x","-40%").attr("y","-40%").attr("width","180%").attr("height","180%");
+  const ds=d.append("filter").attr("id",ids.drop).attr("x","-40%").attr("y","-40%").attr("width","180%").attr("height","180%");
   ds.append("feDropShadow").attr("dx",0).attr("dy",1.5).attr("stdDeviation",2.6)
     .attr("flood-color","#000").attr("flood-opacity",.28);
   // 광택(흰색 하이라이트) — 어떤 색 위에도 글로시한 구체 느낌(은은하게)
-  const gl=d.append("radialGradient").attr("id","gloss").attr("cx",".34").attr("cy",".24").attr("r",".7");
+  const gl=d.append("radialGradient").attr("id",ids.gloss).attr("cx",".34").attr("cy",".24").attr("r",".7");
   gl.append("stop").attr("offset","0%").attr("stop-color","#fff").attr("stop-opacity",".4");
   gl.append("stop").attr("offset","45%").attr("stop-color","#fff").attr("stop-opacity",".08");
   gl.append("stop").attr("offset","100%").attr("stop-color","#fff").attr("stop-opacity","0");
+  return ids;
 }
 
 //──────────── 연관 엣지 소스(동시출현/동시추세) ────────────
@@ -689,7 +693,7 @@ $("assocMode").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.d
 //──────────── 네트워크(개선) ────────────
 let netSim=null;
 function drawNetwork(data){
-  const svg=d3.select("#netSvg");svg.selectAll("*").remove();ensureDefs(svg);
+  const svg=d3.select("#netSvg");svg.selectAll("*").remove();const FD=ensureDefs(svg);
   const el=$("netSvg"),W=el.clientWidth,H=el.clientHeight;
   if(netSim)netSim.stop();
   const g=svg.append("g");
@@ -716,7 +720,7 @@ function drawNetwork(data){
   const node=g.append("g").selectAll("g").data(nodes).join("g").style("cursor","pointer").call(drag(netSim));
   const sInk=CV("--stageInk"),sStroke=CV("--stageStroke");
   node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d))
-    .attr("stroke",sStroke).attr("stroke-width",1.5).attr("filter","url(#glow)").attr("fill-opacity",.92);
+    .attr("stroke",sStroke).attr("stroke-width",1.5).attr("filter",`url(#${FD.glow})`).attr("fill-opacity",.92);
   node.append("text").attr("text-anchor","middle").attr("dy",d=>-rOf(d)-5)
     .attr("fill",sInk).attr("font-size",d=>d.freq>=mx*.5?13:11).attr("font-weight",700)
     .attr("stroke",sStroke).attr("stroke-width",3).attr("paint-order","stroke")
@@ -788,7 +792,7 @@ function drawCloud(data){
 
 //──────────── 분야별 버블(fancy) ────────────
 function drawBubble(data){
-  const svg=d3.select("#bubbleSvg");svg.selectAll("*").remove();ensureDefs(svg);
+  const svg=d3.select("#bubbleSvg");svg.selectAll("*").remove();const FD=ensureDefs(svg);
   const el=$("bubbleSvg"),W=el.clientWidth,H=el.clientHeight;
   const active=CATS.filter(c=>data.kws.some(k=>k.cat===c.id));
   if(!active.length)return;
@@ -801,7 +805,7 @@ function drawBubble(data){
     const cnt=((data.categorySummary||[]).find(s=>s.id===c.id)||{}).count||data.kws.filter(k=>k.cat===c.id).length;
     const pill=g.append("g").attr("transform",`translate(${colW*i+colW/2},28)`);
     pill.append("rect").attr("x",-52).attr("y",-14).attr("width",104).attr("height",26).attr("rx",13)
-      .attr("fill",c.color).attr("filter","url(#drop)");
+      .attr("fill",c.color).attr("filter",`url(#${FD.drop})`);
     pill.append("text").attr("text-anchor","middle").attr("dy",".32em").attr("fill","#0b0d13")
       .attr("font-weight",800).attr("font-size",12.5).text(`${lang==="ko"?c.ko:c.en} · ${cnt}`);
   });
@@ -814,8 +818,8 @@ function drawBubble(data){
     n.x=Math.max(lx+rOf(n),Math.min(rx-rOf(n),n.x));n.y=Math.max(52+rOf(n),Math.min(H-10-rOf(n),n.y));});
   const node=g.selectAll("g.bn").data(nodes).join("g").attr("class","bn").style("cursor","pointer")
     .attr("transform",d=>`translate(${d.x},${d.y})`);
-  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("filter","url(#drop)");
-  node.append("circle").attr("r",rOf).attr("fill","url(#gloss)").attr("pointer-events","none");
+  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("filter",`url(#${FD.drop})`);
+  node.append("circle").attr("r",rOf).attr("fill",`url(#${FD.gloss})`).attr("pointer-events","none");
   node.append("text").attr("dy",".32em").attr("text-anchor","middle").attr("fill","#0b0d13")
     .attr("font-weight",800).attr("font-size",d=>Math.min(13,rOf(d)*.62))
     .style("display",d=>rOf(d)>16?null:"none").text(d=>d.id);
@@ -828,7 +832,7 @@ function drawBubble(data){
 
 //──────────── 트리맵 ────────────
 function drawTreemap(data){
-  const svg=d3.select("#treeSvg");svg.selectAll("*").remove();ensureDefs(svg);
+  const svg=d3.select("#treeSvg");svg.selectAll("*").remove();const FD=ensureDefs(svg);
   const el=$("treeSvg"),W=el.clientWidth,H=el.clientHeight;
   if(!data.kws.length)return;
   const byCat=d3.group(data.kws,d=>d.cat);
@@ -840,9 +844,9 @@ function drawTreemap(data){
   const cell=g.selectAll("g.cell").data(h.leaves()).join("g").attr("class","cell")
     .attr("transform",d=>`translate(${d.x0},${d.y0})`).style("cursor","pointer");
   cell.append("rect").attr("rx",6).attr("height",d=>d.y1-d.y0).attr("width",d=>d.x1-d.x0)
-    .attr("fill",d=>nodeColor(d.data.d)).attr("filter","url(#drop)");
+    .attr("fill",d=>nodeColor(d.data.d)).attr("filter",`url(#${FD.drop})`);
   cell.append("rect").attr("rx",6).attr("width",d=>d.x1-d.x0).attr("height",d=>Math.min(d.y1-d.y0,(d.y1-d.y0)*.58))
-    .attr("fill","url(#gloss)").attr("pointer-events","none");
+    .attr("fill",`url(#${FD.gloss})`).attr("pointer-events","none");
   cell.append("text").attr("x",7).attr("y",16).attr("fill","#0b0d13").attr("font-weight",800).attr("font-size",11.5)
     .text(d=>d.data.name).each(function(d){if(d.x1-d.x0<34||d.y1-d.y0<20)d3.select(this).style("display","none");});
   cell.append("text").attr("x",7).attr("y",30).attr("fill","#0b0d13").attr("fill-opacity",.65).attr("font-size",10)
@@ -1065,7 +1069,7 @@ $("heatMetricCtrl").querySelectorAll("button").forEach(b=>b.addEventListener("cl
 //──────────── 트렌드 레이더(사분면) ────────────
 function drawRadar(data){
   const svg=d3.select("#radarSvg"),el=$("radarSvg"),W=el.clientWidth,H=el.clientHeight;
-  svg.selectAll("*").remove();ensureDefs(svg);
+  svg.selectAll("*").remove();const FD=ensureDefs(svg);
   const R=(data&&data.radar)||[];
   if(!R.length){svg.append("text").attr("x",W/2).attr("y",H/2).attr("text-anchor","middle").attr("fill",CV("--muted")).text(t("st_nokw"));return;}
   const m={l:56,r:20,t:30,b:42},mut=CV("--muted"),line=CV("--line"),ink=CV("--stageInk"),strk=CV("--stageStroke");
@@ -1106,8 +1110,8 @@ function drawRadar(data){
   const labelSet=new Set(nodes.slice().sort((a,b)=>(b.volume+b.degree)-(a.volume+a.degree)).slice(0,28).map(n=>n.id));
   const node=g.selectAll("g.rn").data(nodes).join("g").attr("class","rn").style("cursor","pointer")
     .attr("transform",d=>`translate(${d.x},${d.y})`);
-  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("filter","url(#drop)");
-  node.append("circle").attr("r",rOf).attr("fill","url(#gloss)").attr("pointer-events","none");
+  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("filter",`url(#${FD.drop})`);
+  node.append("circle").attr("r",rOf).attr("fill",`url(#${FD.gloss})`).attr("pointer-events","none");
   node.append("text").attr("dy",d=>-rOf(d)-3).attr("text-anchor","middle").attr("fill",ink).attr("font-size",11).attr("font-weight",700)
     .attr("stroke",strk).attr("stroke-width",2.5).attr("paint-order","stroke")
     .style("display",d=>labelSet.has(d.id)?null:"none").text(d=>d.id);
@@ -1160,7 +1164,7 @@ async function loadHistory(kw){
 }
 function drawHistLine(){
   const svg=d3.select("#histLine"),el=$("histLine"),W=el.clientWidth,H=el.clientHeight;
-  svg.selectAll("*").remove();ensureDefs(svg);
+  svg.selectAll("*").remove();const FD=ensureDefs(svg);
   const pts=bucketHist(histDaily||[],histIv);
   if(!pts.length){svg.append("text").attr("x",W/2).attr("y",H/2).attr("text-anchor","middle").attr("fill",CV("--muted")).text(t("hist_none"));return;}
   const m={l:40,r:14,t:14,b:24},mut=CV("--muted"),acc=CV("--accent");
