@@ -100,8 +100,10 @@
   .hchip{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:12px}
   .hchip b{color:var(--accent)}
   .radarai{position:absolute;right:14px;bottom:14px;max-width:320px;max-height:42%;overflow-y:auto;
-    background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:12px;
+    background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 12px 12px;font-size:12px;
     line-height:1.6;color:var(--txt);box-shadow:0 4px 16px rgba(0,0,0,.2)}.radarai:empty{display:none}
+  .aiclose{position:absolute;top:6px;right:8px;background:none;border:none;color:var(--muted);font-size:16px;
+    line-height:1;cursor:pointer;font-weight:800}.aiclose:hover{color:var(--txt)}
   .status{padding:8px 16px;font-size:12px;color:var(--muted);border-top:1px solid var(--line);
     display:flex;align-items:center;gap:10px;min-height:34px;background:var(--panel)}
   .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
@@ -169,6 +171,7 @@
   <div class="right">
     <span class="srcstat" id="hdrStat"></span>
     <button class="iconbtn" id="aiBtn" title="AI" style="width:auto;padding:0 10px;font-weight:800">✨ AI</button>
+    <button class="iconbtn" id="imgBtn" title="copy/save image">📷</button>
     <button class="iconbtn" id="themeBtn" title="theme">🌙</button>
     <div class="langtog">
       <button data-lang="ko">KO</button><button data-lang="en">EN</button>
@@ -329,6 +332,8 @@ const STR={
     rising_new:"NEW",rising_empty:"급상승 키워드가 충분치 않습니다. 데이터가 더 쌓이면 표시됩니다.",
     sent_pos:"긍정",sent_neg:"부정",sent_neu:"중립",
     kpi_articles:"기사",kpi_keywords:"키워드",kpi_clusters:"토픽군집",kpi_sources:"소스",kpi_sentiment:"감성",
+    sent_help:"감성 점수: 기사 제목의 긍정/부정 신호어 비율로 계산한 -1(부정)~+1(긍정) 값. 게이지 위치는 전체 평균 감성.",
+    img_copied:"📋 이미지를 클립보드에 복사했습니다",img_saved:"⬇ 이미지를 PNG로 저장했습니다",img_none:"이 화면은 이미지로 내보낼 수 없습니다",
     cm_cat:"분야",cm_cluster:"군집",cm_sent:"감성",
     d_freq:"빈도",d_sentiment:"감성",d_trend:"시간 추이",d_related:"연관 키워드",d_articles:"관련 기사",
     ins_busiest:"📊 최다 분야 {cat} · {count}건",ins_rising:"🚀 급상승 {kw} ×{score}",
@@ -366,6 +371,8 @@ const STR={
     rising_new:"NEW",rising_empty:"Not enough data for rising keywords yet.",
     sent_pos:"positive",sent_neg:"negative",sent_neu:"neutral",
     kpi_articles:"Articles",kpi_keywords:"Keywords",kpi_clusters:"Topics",kpi_sources:"Sources",kpi_sentiment:"Sentiment",
+    sent_help:"Sentiment: -1 (negative) to +1 (positive), from positive/negative signal words in article titles. The gauge shows the overall average.",
+    img_copied:"📋 Image copied to clipboard",img_saved:"⬇ Image saved as PNG",img_none:"This view can't be exported as an image",
     cm_cat:"Field",cm_cluster:"Cluster",cm_sent:"Sentiment",
     d_freq:"Frequency",d_sentiment:"Sentiment",d_trend:"Trend",d_related:"Related",d_articles:"Articles",
     ins_busiest:"📊 Top field {cat} · {count}",ins_rising:"🚀 Rising {kw} ×{score}",
@@ -396,6 +403,7 @@ function applyLang(){
   document.querySelectorAll("[data-i18n-ph]").forEach(el=>el.placeholder=t(el.dataset.i18nPh));
   document.querySelectorAll(".langtog button").forEach(b=>b.classList.toggle("on",b.dataset.lang===lang));
   if(CFG)renderControls();
+  const sk=document.querySelector(".kpi.sent");if(sk)sk.title=t("sent_help");
   renderChips();
   if(lastData){renderInsights(lastData);redraw();}
   if(!lastData)setStatus(t("st_ready"));
@@ -635,10 +643,14 @@ async function loadTemporal(){
   selected("cat").forEach(v=>p.append("categories",v));regionIds().forEach(v=>p.append("regions",v));
   try{
     const cm=await fetch(API+"/api/correlation?"+p).then(r=>r.json());
-    const ks=cm.keywords||[],M=cm.matrix||[],th=Math.max(0.4,+$("assoc").value),edges=[];
+    const ks=cm.keywords||[],M=cm.matrix||[],th=Math.max(0.5,+$("assoc").value),cand=[];
     for(let i=0;i<ks.length;i++)for(let j=i+1;j<ks.length;j++){const r=M[i][j];
-      if(r>=th)edges.push({source:ks[i],target:ks[j],npmi:r,value:r});}
-    tempLinks=edges;
+      if(r>=th)cand.push({source:ks[i],target:ks[j],npmi:r,value:r});}
+    // 노드별 상위 3개만 유지(백본) → 중앙으로 뭉치는 헤어볼 방지
+    const byN={};cand.forEach(e=>{(byN[e.source]=byN[e.source]||[]).push(e);(byN[e.target]=byN[e.target]||[]).push(e);});
+    const keep=new Set();
+    Object.values(byN).forEach(es=>{es.sort((a,b)=>b.npmi-a.npmi);es.slice(0,3).forEach(e=>keep.add(e.source+"|"+e.target));});
+    tempLinks=cand.filter(e=>keep.has(e.source+"|"+e.target));
   }catch(e){tempLinks=[];}
 }
 $("assocMode").querySelectorAll("button").forEach(b=>b.addEventListener("click",async()=>{
@@ -877,6 +889,39 @@ async function explainPair(a,b){
     out.innerHTML=r.ok?fmtAI((await r.json()).text):t("ai_err");
   }catch(e){out.textContent=t("ai_err");}
 }
+["radarAiOut","histAiOut"].forEach(id=>$(id).addEventListener("click",e=>{
+  if(e.target.classList&&e.target.classList.contains("aiclose"))$(id).innerHTML="";}));
+
+// ── 활성 뷰를 PNG 이미지로 복사/저장 ──
+async function exportImage(){
+  const pane=document.querySelector(".pane.active");
+  const svg=pane&&pane.querySelector("svg");
+  if(!svg){setStatus(t("img_none"));return;}
+  const W=svg.clientWidth||svg.getBoundingClientRect().width||900;
+  const H=svg.clientHeight||svg.getBoundingClientRect().height||600;
+  const clone=svg.cloneNode(true);
+  clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+  clone.setAttribute("width",W);clone.setAttribute("height",H);
+  const bg=document.createElementNS("http://www.w3.org/2000/svg","rect");
+  bg.setAttribute("width",W);bg.setAttribute("height",H);bg.setAttribute("fill",CV("--stage"));
+  clone.insertBefore(bg,clone.firstChild);
+  const xml=new XMLSerializer().serializeToString(clone);
+  const url="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(xml)));
+  const img=new Image();
+  img.onload=()=>{
+    const sc=2,cv=document.createElement("canvas");cv.width=W*sc;cv.height=H*sc;
+    const ctx=cv.getContext("2d");ctx.scale(sc,sc);ctx.drawImage(img,0,0);
+    cv.toBlob(async b=>{
+      const name=`mytrend_${document.querySelector(".tab.active").dataset.v}.png`;
+      try{await navigator.clipboard.write([new ClipboardItem({"image/png":b})]);setStatus(t("img_copied"));}
+      catch(e){const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=name;
+        document.body.appendChild(a);a.click();a.remove();setStatus(t("img_saved"));}
+    },"image/png");
+  };
+  img.onerror=()=>setStatus(t("img_none"));
+  img.src=url;
+}
+$("imgBtn").addEventListener("click",exportImage);
 $("aiBtn").addEventListener("click",openAI);
 $("aiClose").addEventListener("click",()=>$("aiDrawer").classList.remove("open"));
 $("aiBriefBtn").addEventListener("click",genBrief);
@@ -958,7 +1003,7 @@ async function radarAiReading(){
   const out=$("radarAiOut");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
   const btn=$("radarAiBtn");btn.disabled=true;
   try{const r=await fetch(API+"/api/ai/radar?"+aiParams(),{method:"POST"});
-    out.innerHTML=r.ok?fmtAI((await r.json()).text):(r.status===503?t("ai_disabled"):t("ai_err"));
+    out.innerHTML='<button class="aiclose" title="close">×</button>'+(r.ok?fmtAI((await r.json()).text):(r.status===503?t("ai_disabled"):t("ai_err")));
   }catch(e){out.textContent=t("ai_err");}
   btn.disabled=false;
 }
@@ -1052,7 +1097,7 @@ async function histAiReading(){
   if(!histKw)return;const out=$("histAiOut");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
   try{const p=new URLSearchParams({q:`'${histKw}' 키워드의 장기 추이와 의미를 분석해줘`,lang,hours:"24"});regionIds().forEach(v=>p.append("regions",v));
     const r=await fetch(API+"/api/ai/ask?"+p,{method:"POST"});
-    out.innerHTML=r.ok?fmtAI((await r.json()).answer):(r.status===503?t("ai_disabled"):t("ai_err"));
+    out.innerHTML='<button class="aiclose" title="close">×</button>'+(r.ok?fmtAI((await r.json()).answer):(r.status===503?t("ai_disabled"):t("ai_err")));
   }catch(e){out.textContent=t("ai_err");}
 }
 $("histBtn").addEventListener("click",()=>loadHistory($("histInput").value));
