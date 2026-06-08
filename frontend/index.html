@@ -274,7 +274,6 @@
           <div id="histInfo"></div>
         </div>
         <div id="histAiOut" class="radarai"></div>
-        <div class="empty" id="histEmpty" style="position:static;height:100%"><b data-i18n="hist_title"></b><span data-i18n="hist_desc"></span></div>
       </div></div>
       <div class="pane" data-v="rising"><div id="risingWrap"></div></div>
     </div>
@@ -976,7 +975,7 @@ function bucketHist(days,iv){
 }
 async function loadHistory(kw){
   kw=(kw||"").trim();if(!kw)return;histKw=kw;
-  $("histEmpty").style.display="none";$("histInfo").innerHTML=`<span class="spin"></span>`;
+  $("histInfo").innerHTML=`<span class="spin"></span>`;
   const p=new URLSearchParams({keyword:kw,days:$("histDays").value,interval:"day"});regionIds().forEach(v=>p.append("regions",v));
   try{
     const h=await fetch(API+"/api/history?"+p).then(r=>r.json());
@@ -1037,7 +1036,18 @@ function drawCalendar(){
   }
   ["월","수","금"].forEach((lbl,i)=>svg.append("text").attr("x",26).attr("y",14+(i*2)*(cell+gap)+cell-2).attr("text-anchor","end").attr("fill",CV("--muted")).attr("font-size",9).text(lang==="ko"?lbl:["Mon","Wed","Fri"][i]));
 }
-function drawHistory(){if(histDaily){drawHistLine();drawCalendar();}}
+function drawHistory(){if(histDaily){drawHistLine();drawCalendar();}else loadBreakouts();}
+async function loadBreakouts(){
+  const info=$("histInfo");info.innerHTML=`<span class="hchip" style="color:var(--muted)">${t("hist_desc")}</span>`;
+  try{
+    const p=new URLSearchParams({recent_days:"7",baseline_days:"90",z_min:"2"});regionIds().forEach(v=>p.append("regions",v));
+    const list=(await fetch(API+"/api/breakouts?"+p).then(r=>r.json())).breakouts||[];
+    if(!list.length)return;
+    info.innerHTML=`<div style="width:100%;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">🚨 ${t("hist_breakout")}</div>`+
+      list.slice(0,14).map(x=>`<span class="hchip" style="cursor:pointer" data-bk="${encodeURIComponent(x.id)}">${x.id} <b>z${x.z}</b></span>`).join("");
+    info.querySelectorAll("[data-bk]").forEach(el=>el.addEventListener("click",()=>{const k=decodeURIComponent(el.dataset.bk);$("histInput").value=k;loadHistory(k);}));
+  }catch(e){}
+}
 async function histAiReading(){
   if(!histKw)return;const out=$("histAiOut");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
   try{const p=new URLSearchParams({q:`'${histKw}' 키워드의 장기 추이와 의미를 분석해줘`,lang,hours:"24"});regionIds().forEach(v=>p.append("regions",v));
@@ -1115,7 +1125,8 @@ document.querySelectorAll(".tab").forEach(tb=>tb.addEventListener("click",()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
   document.querySelectorAll(".pane").forEach(x=>x.classList.remove("active"));
   tb.classList.add("active");document.querySelector(`.pane[data-v="${tb.dataset.v}"]`).classList.add("active");
-  if(lastData)redraw();saveState();}));
+  if(tb.dataset.v==="history")drawHistory();else if(lastData)redraw();
+  saveState();}));
 window.addEventListener("resize",()=>{if(lastData)redraw();});
 
 applyTheme();
