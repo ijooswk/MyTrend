@@ -344,6 +344,38 @@ async def api_ai_ask(
     return {"answer": text, "cached": False, "evidence": len(arts)}
 
 
+@app.post("/api/ai/relate")
+async def api_ai_relate(
+    a: str = Query(..., min_length=1),
+    b: str = Query(..., min_length=1),
+    lang: str = Query("ko", pattern="^(ko|en)$"),
+    categories: list[str] | None = Query(None),
+    regions: list[str] | None = Query(None),
+    sources: list[str] | None = Query(None),
+    hours: int = Query(24, ge=1, le=168),
+):
+    """두 키워드의 상관 관계를 기사 근거로 설명(connect-the-dots)."""
+    if not ai.ai_enabled():
+        return JSONResponse({"error": "AI disabled (no OpenRouter key)"}, status_code=503)
+    import time as _t
+    from .nlp import tokenize
+    arts = state["db"].query(since=_t.time() - hours * 3600, categories=categories,
+                             regions=regions, sources=sources, limit=400)
+    rel = [x for x in arts if {a, b} & set(tokenize(x.title))]
+    if not rel:
+        return JSONResponse({"error": "no articles mention these keywords"}, status_code=409)
+    ck = ("relate", lang, tuple(sorted((a, b))), len(rel), rel[0].id)
+    cached = ai.cache_get(*ck)
+    if cached:
+        return {"text": cached, "cached": True, "evidence": len(rel)}
+    try:
+        text = await ai.chat(ai.build_relate_messages(a, b, rel, lang), temperature=0.3)
+    except ai.AIUnavailable as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    ai.cache_put(text, *ck)
+    return {"text": text, "cached": False, "evidence": len(rel)}
+
+
 @app.get("/api/stats")
 def api_stats():
     """DB·스케줄러 상태."""

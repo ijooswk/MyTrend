@@ -131,6 +131,18 @@ def build_qa_messages(question: str, articles: list, lang: str, *, limit: int = 
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+def build_relate_messages(a: str, b: str, articles: list, lang: str, *, limit: int = 40) -> list[dict]:
+    lname = _lang_name(lang)
+    def g(x, k):
+        return getattr(x, k) if not isinstance(x, dict) else x[k]
+    heads = [f"- {g(x, 'title')}" for x in articles[:limit]]
+    system = (f"You explain how two news keywords are related, using ONLY the provided headlines. "
+              f"Answer in {lname}, 2-3 sentences. If the headlines don't show a real connection, "
+              f"say they appear unrelated. No fabrication.")
+    user = f"Keyword A: {a}\nKeyword B: {b}\nHeadlines:\n" + "\n".join(heads)
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
 def parse_labels(text: str) -> dict[int, str]:
     """LLM 응답에서 JSON 배열을 추출해 {cluster_id: label} 로 변환."""
     s = text.strip()

@@ -71,6 +71,36 @@ def test_ai_briefing_with_mocked_chat(monkeypatch):
         assert r2.json()["cached"] is True
 
 
+def test_build_relate_messages():
+    from app.db import Article
+    arts = [Article(id="1", title="엔비디아 AI 반도체 수요 급증", url="u", source="s",
+                    publisher="p", category="TECHNOLOGY", region="KR", lang="ko",
+                    published_at=0, fetched_at=0)]
+    msgs = ai.build_relate_messages("AI", "반도체", arts, "ko")
+    assert "Keyword A: AI" in msgs[1]["content"] and "반도체" in msgs[1]["content"]
+    assert "Korean" in msgs[0]["content"]
+
+
+def test_ai_relate_with_mocked_chat(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main as m
+
+    async def fake_chat(messages, **kw):
+        return "AI 수요가 반도체 수요를 견인합니다."
+
+    monkeypatch.setattr(ai, "ai_enabled", lambda: True)
+    monkeypatch.setattr(ai, "chat", fake_chat)
+    with TestClient(m.app) as c:
+        import time
+        now = time.time()
+        m.state["db"].upsert_many([Article(
+            id="r1", title="엔비디아 AI 반도체 수요 급증", url="u", source="rss",
+            publisher="p", category="TECHNOLOGY", region="KR", lang="ko",
+            published_at=now - 600, fetched_at=now)])
+        r = c.post("/api/ai/relate", params={"a": "AI", "b": "반도체", "regions": ["KR"]})
+        assert r.status_code == 200 and "반도체" in r.json()["text"]
+
+
 def test_ai_ask_with_mocked_chat(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m
