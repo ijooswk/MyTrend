@@ -49,8 +49,8 @@ def npmi(n: int, fa: int, fb: int, fab: int) -> float:
     p_b = fb / n
     pmi = math.log(p_ab / (p_a * p_b))
     denom = -math.log(p_ab)
-    if denom == 0:
-        return 0.0
+    if denom == 0:          # p_ab==1 → 항상 함께(완전 연관), NPMI 극한 = 1
+        return 1.0
     return max(-1.0, min(1.0, pmi / denom))
 
 
