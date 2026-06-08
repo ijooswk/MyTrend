@@ -453,10 +453,14 @@ async def api_ai_relate(
 
 @app.get("/api/stats")
 def api_stats():
-    """DB·스케줄러 상태."""
+    """DB·스케줄러·롤업 상태."""
+    from . import history as H
     sched = state.get("sched")
+    lo, hi, n = state["db"].daily_day_bounds()
+    span = len(H.daterange(lo, hi)) if lo and hi else 0
     return {
         "db": state["db"].stats(),
+        "rollup": {"from": lo, "to": hi, "rows": n, "span_days": span},
         "last_scheduled_ingest": getattr(sched, "last_result", None),
     }
 
