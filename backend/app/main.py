@@ -419,6 +419,48 @@ async def api_ai_ask(
     return {"answer": text, "cached": False, "evidence": len(arts)}
 
 
+@app.post("/api/ai/keyword-digest")
+async def api_ai_keyword_digest(
+    keyword: str = Query(..., min_length=1),
+    lang: str = Query("ko", pattern="^(ko|en)$"),
+    regions: list[str] | None = Query(None),
+    hours: int = Query(48, ge=1, le=336),
+    limit: int = Query(4, ge=1, le=8),
+):
+    """키워드 관련 기사의 본문 전체를 실시간 수집해 AI 가 요약·분석."""
+    if not ai.ai_enabled():
+        return JSONResponse({"error": "AI disabled (no OpenRouter key)"}, status_code=503)
+    import time as _t
+    from . import extract
+    from .nlp import tokenize
+    arts = state["db"].query(since=_t.time() - hours * 3600, regions=regions, limit=300)
+    rel = [a for a in arts if keyword in set(tokenize(a.title))][:limit]
+    if not rel:
+        return JSONResponse({"error": "no articles mention this keyword"}, status_code=409)
+
+    ck = ("kwdigest", lang, keyword, tuple(a.id for a in rel))
+    cached = ai.cache_get(*ck)
+    if cached:
+        return {"summary": cached, "cached": True,
+                "articles": [{"title": a.title, "publisher": a.publisher, "url": a.url} for a in rel]}
+
+    texts = await extract.fetch_many([a.url for a in rel])
+    docs, fetched = [], 0
+    for a, txt in zip(rel, texts):
+        if txt:
+            fetched += 1
+        docs.append({"title": a.title, "publisher": a.publisher,
+                     "text": txt, "summary": a.summary})
+    try:
+        summary = await ai.chat(ai.build_keyword_digest_messages(keyword, docs, lang),
+                                max_tokens=900, temperature=0.3)
+    except ai.AIUnavailable as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    ai.cache_put(summary, *ck)
+    return {"summary": summary, "cached": False, "fetched": fetched, "used": len(rel),
+            "articles": [{"title": a.title, "publisher": a.publisher, "url": a.url} for a in rel]}
+
+
 @app.post("/api/ai/relate")
 async def api_ai_relate(
     a: str = Query(..., min_length=1),

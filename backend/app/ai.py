@@ -148,6 +148,22 @@ def build_radar_messages(radar: list[dict], lang: str) -> list[dict]:
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+def build_keyword_digest_messages(keyword: str, docs: list[dict], lang: str) -> list[dict]:
+    """관련 기사 본문(docs: {title, publisher, text})으로 키워드 심층 분석 프롬프트."""
+    lname = _lang_name(lang)
+    blocks = []
+    for i, d in enumerate(docs, 1):
+        body = (d.get("text") or d.get("summary") or "").strip()
+        blocks.append(f"[기사 {i}] {d.get('title','')} ({d.get('publisher','')})\n{body}")
+    system = (f"You are a news analyst. Using ONLY the FULL article texts below about the keyword "
+              f"'{keyword}', write a structured analysis in {lname} with these sections:\n"
+              f"• 핵심 요약 (3-4 sentences)\n• 주요 사실/쟁점 (bullet points)\n• 시사점/맥락 (2-3 sentences)\n"
+              f"Ground every statement in the provided texts. Do not invent facts, numbers, or quotes. "
+              f"If the texts are thin, say so honestly.")
+    user = f"키워드: {keyword}\n\n" + "\n\n---\n\n".join(blocks)
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
 def build_relate_messages(a: str, b: str, articles: list, lang: str, *, limit: int = 40) -> list[dict]:
     lname = _lang_name(lang)
     def g(x, k):

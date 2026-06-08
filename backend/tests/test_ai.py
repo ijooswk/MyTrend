@@ -80,6 +80,50 @@ def test_ai_briefing_with_mocked_chat(monkeypatch):
         assert r2.json()["cached"] is True
 
 
+def test_html_to_text_extracts_paragraphs():
+    from app.extract import html_to_text
+    html = ("<html><head><style>x{}</style></head><body><nav>menu</nav>"
+            "<p>" + "삼성전자가 AI 반도체를 공개했다. " * 12 + "</p>"
+            "<script>bad()</script><p>" + "수요가 급증하고 있다. " * 12 + "</p></body></html>")
+    txt = html_to_text(html)
+    assert "menu" not in txt and "bad()" not in txt
+    assert "삼성전자" in txt and "수요" in txt
+
+
+def test_build_keyword_digest_messages():
+    docs = [{"title": "삼성 AI 칩 공개", "publisher": "BBC", "text": "본문 내용 전체..."}]
+    msgs = ai.build_keyword_digest_messages("AI", docs, "ko")
+    assert "Korean" in msgs[0]["content"] and "AI" in msgs[1]["content"]
+    assert "본문 내용" in msgs[1]["content"]
+
+
+def test_ai_keyword_digest_with_mocks(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main as m, extract
+    from app.db import Article
+    import time
+
+    async def fake_fetch_many(urls, **kw):
+        return ["엔비디아와의 경쟁이 심화되고 있다. " * 20 for _ in urls]
+
+    async def fake_chat(messages, **kw):
+        return "• 핵심 요약: AI 반도체 경쟁 심화."
+
+    monkeypatch.setattr(ai, "ai_enabled", lambda: True)
+    monkeypatch.setattr(ai, "chat", fake_chat)
+    monkeypatch.setattr(extract, "fetch_many", fake_fetch_many)
+    with TestClient(m.app) as c:
+        now = time.time()
+        m.state["db"].upsert_many([Article(
+            id="d1", title="삼성전자 AI 반도체 공개", url="http://x/1", source="rss",
+            publisher="BBC", category="TECHNOLOGY", region="KR", lang="ko",
+            published_at=now - 600, fetched_at=now)])
+        r = c.post("/api/ai/keyword-digest", params={"keyword": "AI", "regions": ["KR"]})
+        assert r.status_code == 200
+        j = r.json()
+        assert "AI" in j["summary"] and j["used"] >= 1 and len(j["articles"]) >= 1
+
+
 def test_build_relate_messages():
     from app.db import Article
     arts = [Article(id="1", title="엔비디아 AI 반도체 수요 급증", url="u", source="s",
