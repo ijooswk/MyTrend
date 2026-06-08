@@ -55,6 +55,42 @@ def test_ai_routes_gated_when_disabled(monkeypatch):
         assert c.post("/api/ai/ask", params={"q": "왜?"}).status_code == 503
 
 
+def test_ai_models_endpoint(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main as m
+
+    async def fake_list():
+        return [{"id": "openai/gpt-4o-mini", "label": "GPT-4o mini"},
+                {"id": "anthropic/claude-3.5-sonnet", "label": "Claude Sonnet"}]
+    monkeypatch.setattr(ai, "list_models", fake_list)
+    with TestClient(m.app) as c:
+        j = c.get("/api/ai/models").json()
+        assert len(j["models"]) == 2 and "default" in j
+        assert j["models"][0]["id"] == "openai/gpt-4o-mini"
+
+
+def test_ai_model_param_passed_to_chat(monkeypatch):
+    from fastapi.testclient import TestClient
+    from app import main as m
+    seen = {}
+
+    async def fake_chat(messages, **kw):
+        seen["model"] = kw.get("model")
+        return "ok"
+    monkeypatch.setattr(ai, "ai_enabled", lambda: True)
+    monkeypatch.setattr(ai, "chat", fake_chat)
+    with TestClient(m.app) as c:
+        import time
+        now = time.time()
+        m.state["db"].upsert_many([Article(
+            id="mp1", title="삼성전자 AI 반도체", url="u", source="rss", publisher="p",
+            category="TECHNOLOGY", region="KR", lang="ko",
+            published_at=now - 600, fetched_at=now)])
+        c.post("/api/ai/briefing", params={"categories": ["TECHNOLOGY"], "regions": ["KR"],
+                                           "model": "deepseek/deepseek-chat"})
+        assert seen.get("model") == "deepseek/deepseek-chat"
+
+
 def test_ai_briefing_with_mocked_chat(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m

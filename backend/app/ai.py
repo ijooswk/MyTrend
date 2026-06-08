@@ -46,6 +46,55 @@ def _cache_put(k: str, v: str):
     _CACHE[k] = (time.time() + get_settings().mytrend_ai_cache_ttl, v)
 
 
+# ── 모델 목록(인기 모델군 큐레이션) ──
+# 키 없이도 호출 가능한 공개 모델 목록에서 아래 '군(family)'에 해당하는 현재 슬러그를 고른다.
+_MODEL_FAMILIES = [
+    ("GPT-4o mini", ["gpt-4o-mini"]),
+    ("GPT-4o", ["gpt-4o"]),
+    ("Claude Sonnet", ["claude-3.7-sonnet", "claude-3.5-sonnet", "claude-sonnet"]),
+    ("Gemini Flash", ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-flash"]),
+    ("DeepSeek", ["deepseek-chat", "deepseek-v3", "deepseek/deepseek"]),
+    ("Llama 3 70B", ["llama-3.3-70b", "llama-3.1-70b"]),
+    ("Qwen", ["qwen-2.5-72b", "qwen2.5-72b", "qwen/qwen"]),
+]
+_FALLBACK_MODELS = [
+    {"id": "openai/gpt-4o-mini", "label": "GPT-4o mini"},
+    {"id": "anthropic/claude-3.5-sonnet", "label": "Claude Sonnet"},
+    {"id": "google/gemini-flash-1.5", "label": "Gemini Flash"},
+    {"id": "deepseek/deepseek-chat", "label": "DeepSeek"},
+    {"id": "meta-llama/llama-3.3-70b-instruct", "label": "Llama 3 70B"},
+]
+
+
+async def list_models() -> list[dict]:
+    """OpenRouter 라이브 모델 목록에서 인기 모델군의 '유효한 현재 슬러그'를 큐레이션."""
+    ck = _ck("models")
+    cached = _cache_get(ck)
+    if cached:
+        return json.loads(cached)
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=8.0)) as client:
+            r = await client.get("https://openrouter.ai/api/v1/models")
+            r.raise_for_status()
+            ids = [m.get("id", "") for m in r.json().get("data", [])]
+    except Exception:
+        return list(_FALLBACK_MODELS)
+    low = [(i.lower(), i) for i in ids if i]
+    out, seen = [], set()
+    for label, cands in _MODEL_FAMILIES:
+        for c in cands:
+            hit = next((orig for lc, orig in low if c in lc), None)
+            if c == "gpt-4o":          # mini 와 구분
+                hit = next((orig for lc, orig in low if "gpt-4o" in lc and "mini" not in lc), None)
+            if hit and hit not in seen:
+                out.append({"id": hit, "label": label})
+                seen.add(hit)
+                break
+    out = out or list(_FALLBACK_MODELS)
+    _cache_put(ck, json.dumps(out))
+    return out
+
+
 async def chat(messages: list[dict], *, max_tokens: int | None = None,
                temperature: float = 0.4, model: str | None = None) -> str:
     """OpenRouter chat completion. 키 없으면 AIUnavailable."""

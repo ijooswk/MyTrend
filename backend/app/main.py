@@ -305,6 +305,14 @@ def api_ai_status():
             "model": get_settings().mytrend_ai_model if ai.ai_enabled() else None}
 
 
+@app.get("/api/ai/models")
+async def api_ai_models():
+    """선택 가능한 인기 모델군(OpenRouter 라이브 큐레이션) + 기본 모델."""
+    return {"models": await ai.list_models(),
+            "default": get_settings().mytrend_ai_model,
+            "enabled": ai.ai_enabled()}
+
+
 async def _trend_for_ai(categories, regions, sources, hours):
     return await get_trends(state["db"], categories=categories, regions=regions,
                             sources=sources, hours=hours, min_freq=1, max_kw=60, live=False)
@@ -313,6 +321,7 @@ async def _trend_for_ai(categories, regions, sources, hours):
 @app.post("/api/ai/briefing")
 async def api_ai_briefing(
     lang: str = Query("ko", pattern="^(ko|en)$"),
+    model: str | None = Query(None),
     categories: list[str] | None = Query(None),
     regions: list[str] | None = Query(None),
     sources: list[str] | None = Query(None),
@@ -324,12 +333,12 @@ async def api_ai_briefing(
     data = await _trend_for_ai(categories, regions, sources, hours)
     if not data.get("kws"):
         return JSONResponse({"error": "no trend data"}, status_code=409)
-    ck = ("brief", lang, [k["id"] for k in data["kws"][:25]], data.get("sentimentOverall"))
+    ck = ("brief", lang, model, [k["id"] for k in data["kws"][:25]], data.get("sentimentOverall"))
     cached = ai.cache_get(*ck)
     if cached:
         return {"text": cached, "cached": True}
     try:
-        text = await ai.chat(ai.build_briefing_messages(data, lang), temperature=0.4)
+        text = await ai.chat(ai.build_briefing_messages(data, lang), temperature=0.4, model=model)
     except ai.AIUnavailable as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     ai.cache_put(text, *ck)
@@ -339,6 +348,7 @@ async def api_ai_briefing(
 @app.post("/api/ai/radar")
 async def api_ai_radar(
     lang: str = Query("ko", pattern="^(ko|en)$"),
+    model: str | None = Query(None),
     categories: list[str] | None = Query(None),
     regions: list[str] | None = Query(None),
     sources: list[str] | None = Query(None),
@@ -351,12 +361,12 @@ async def api_ai_radar(
     radar = data.get("radar", [])
     if not radar:
         return JSONResponse({"error": "no radar data"}, status_code=409)
-    ck = ("radar", lang, tuple((r["id"], r["quadrant"]) for r in radar[:30]))
+    ck = ("radar", lang, model, tuple((r["id"], r["quadrant"]) for r in radar[:30]))
     cached = ai.cache_get(*ck)
     if cached:
         return {"text": cached, "cached": True}
     try:
-        text = await ai.chat(ai.build_radar_messages(radar, lang), temperature=0.4)
+        text = await ai.chat(ai.build_radar_messages(radar, lang), temperature=0.4, model=model)
     except ai.AIUnavailable as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     ai.cache_put(text, *ck)
@@ -366,6 +376,7 @@ async def api_ai_radar(
 @app.post("/api/ai/label-clusters")
 async def api_ai_labels(
     lang: str = Query("ko", pattern="^(ko|en)$"),
+    model: str | None = Query(None),
     categories: list[str] | None = Query(None),
     regions: list[str] | None = Query(None),
     sources: list[str] | None = Query(None),
@@ -378,12 +389,12 @@ async def api_ai_labels(
     clusters = data.get("clusters", [])
     if not clusters:
         return {"labels": {}}
-    ck = ("labels", lang, [(c["id"], tuple(c["keywords"])) for c in clusters])
+    ck = ("labels", lang, model, [(c["id"], tuple(c["keywords"])) for c in clusters])
     cached = ai.cache_get(*ck)
     if cached:
         return {"labels": ai.parse_labels(cached), "cached": True}
     try:
-        text = await ai.chat(ai.build_label_messages(clusters, lang), temperature=0.2)
+        text = await ai.chat(ai.build_label_messages(clusters, lang), temperature=0.2, model=model)
     except ai.AIUnavailable as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     ai.cache_put(text, *ck)
@@ -394,6 +405,7 @@ async def api_ai_labels(
 async def api_ai_ask(
     q: str = Query(..., min_length=2),
     lang: str = Query("ko", pattern="^(ko|en)$"),
+    model: str | None = Query(None),
     categories: list[str] | None = Query(None),
     regions: list[str] | None = Query(None),
     sources: list[str] | None = Query(None),
@@ -407,12 +419,12 @@ async def api_ai_ask(
                              regions=regions, sources=sources, limit=80)
     if not arts:
         return JSONResponse({"error": "no articles in window"}, status_code=409)
-    ck = ("ask", lang, q, len(arts), arts[0].id if arts else "")
+    ck = ("ask", lang, model, q, len(arts), arts[0].id if arts else "")
     cached = ai.cache_get(*ck)
     if cached:
         return {"answer": cached, "cached": True, "evidence": len(arts)}
     try:
-        text = await ai.chat(ai.build_qa_messages(q, arts, lang), temperature=0.3)
+        text = await ai.chat(ai.build_qa_messages(q, arts, lang), temperature=0.3, model=model)
     except ai.AIUnavailable as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     ai.cache_put(text, *ck)
@@ -423,6 +435,7 @@ async def api_ai_ask(
 async def api_ai_keyword_digest(
     keyword: str = Query(..., min_length=1),
     lang: str = Query("ko", pattern="^(ko|en)$"),
+    model: str | None = Query(None),
     regions: list[str] | None = Query(None),
     hours: int = Query(48, ge=1, le=336),
     limit: int = Query(4, ge=1, le=8),
@@ -438,7 +451,7 @@ async def api_ai_keyword_digest(
     if not rel:
         return JSONResponse({"error": "no articles mention this keyword"}, status_code=409)
 
-    ck = ("kwdigest", lang, keyword, tuple(a.id for a in rel))
+    ck = ("kwdigest", lang, model, keyword, tuple(a.id for a in rel))
     cached = ai.cache_get(*ck)
     if cached:
         return {"summary": cached, "cached": True,
@@ -453,7 +466,7 @@ async def api_ai_keyword_digest(
                      "text": txt, "summary": a.summary})
     try:
         summary = await ai.chat(ai.build_keyword_digest_messages(keyword, docs, lang),
-                                max_tokens=900, temperature=0.3)
+                                max_tokens=900, temperature=0.3, model=model)
     except ai.AIUnavailable as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     ai.cache_put(summary, *ck)
@@ -466,6 +479,7 @@ async def api_ai_relate(
     a: str = Query(..., min_length=1),
     b: str = Query(..., min_length=1),
     lang: str = Query("ko", pattern="^(ko|en)$"),
+    model: str | None = Query(None),
     categories: list[str] | None = Query(None),
     regions: list[str] | None = Query(None),
     sources: list[str] | None = Query(None),
@@ -481,12 +495,12 @@ async def api_ai_relate(
     rel = [x for x in arts if {a, b} & set(tokenize(x.title))]
     if not rel:
         return JSONResponse({"error": "no articles mention these keywords"}, status_code=409)
-    ck = ("relate", lang, tuple(sorted((a, b))), len(rel), rel[0].id)
+    ck = ("relate", lang, model, tuple(sorted((a, b))), len(rel), rel[0].id)
     cached = ai.cache_get(*ck)
     if cached:
         return {"text": cached, "cached": True, "evidence": len(rel)}
     try:
-        text = await ai.chat(ai.build_relate_messages(a, b, rel, lang), temperature=0.3)
+        text = await ai.chat(ai.build_relate_messages(a, b, rel, lang), temperature=0.3, model=model)
     except ai.AIUnavailable as e:
         return JSONResponse({"error": str(e)}, status_code=502)
     ai.cache_put(text, *ck)
