@@ -650,6 +650,15 @@ function ensureDefs(svg){
   const f=d.append("filter").attr("id","glow").attr("x","-60%").attr("y","-60%").attr("width","220%").attr("height","220%");
   f.append("feGaussianBlur").attr("stdDeviation","3.2").attr("result","b");
   const m=f.append("feMerge");m.append("feMergeNode").attr("in","b");m.append("feMergeNode").attr("in","SourceGraphic");
+  // 드롭 섀도(입체감)
+  const ds=d.append("filter").attr("id","drop").attr("x","-40%").attr("y","-40%").attr("width","180%").attr("height","180%");
+  ds.append("feDropShadow").attr("dx",0).attr("dy",2).attr("stdDeviation",3.2)
+    .attr("flood-color","#000").attr("flood-opacity",.38);
+  // 광택(흰색 하이라이트) — 어떤 색 위에도 글로시한 구체 느낌
+  const gl=d.append("radialGradient").attr("id","gloss").attr("cx",".35").attr("cy",".26").attr("r",".75");
+  gl.append("stop").attr("offset","0%").attr("stop-color","#fff").attr("stop-opacity",".6");
+  gl.append("stop").attr("offset","42%").attr("stop-color","#fff").attr("stop-opacity",".13");
+  gl.append("stop").attr("offset","100%").attr("stop-color","#fff").attr("stop-opacity","0");
 }
 
 //──────────── 연관 엣지 소스(동시출현/동시추세) ────────────
@@ -777,55 +786,82 @@ function drawCloud(data){
     }).start();
 }
 
-//──────────── 분야별 버블 ────────────
+//──────────── 분야별 버블(fancy) ────────────
 function drawBubble(data){
   const svg=d3.select("#bubbleSvg");svg.selectAll("*").remove();ensureDefs(svg);
   const el=$("bubbleSvg"),W=el.clientWidth,H=el.clientHeight;
   const active=CATS.filter(c=>data.kws.some(k=>k.cat===c.id));
   if(!active.length)return;
-  const colW=W/active.length,xOf={};active.forEach((c,i)=>xOf[c.id]=colW*(i+.5));
-  svg.append("g").selectAll("text").data(active).join("text")
-    .attr("x",c=>xOf[c.id]).attr("y",26).attr("text-anchor","middle")
-    .attr("fill",c=>c.color).attr("font-weight",800).attr("font-size",15).text(c=>lang==="ko"?c.ko:c.en);
-  const mx=d3.max(data.kws,d=>d.freq)||1,rOf=d=>6+30*Math.sqrt(d.freq/mx);
+  const colW=W/active.length,pad=10,xOf={};active.forEach((c,i)=>xOf[c.id]=colW*i+colW/2);
+  const g=svg.append("g");
+  // 분야 레인 배경 + 헤더 pill
+  active.forEach((c,i)=>{
+    g.append("rect").attr("x",colW*i+pad/2).attr("y",8).attr("width",colW-pad).attr("height",H-16).attr("rx",16)
+      .attr("fill",c.color).attr("fill-opacity",.05).attr("stroke",c.color).attr("stroke-opacity",.18);
+    const cnt=((data.categorySummary||[]).find(s=>s.id===c.id)||{}).count||data.kws.filter(k=>k.cat===c.id).length;
+    const pill=g.append("g").attr("transform",`translate(${colW*i+colW/2},28)`);
+    pill.append("rect").attr("x",-52).attr("y",-14).attr("width",104).attr("height",26).attr("rx",13)
+      .attr("fill",c.color).attr("filter","url(#drop)");
+    pill.append("text").attr("text-anchor","middle").attr("dy",".32em").attr("fill","#0b0d13")
+      .attr("font-weight",800).attr("font-size",12.5).text(`${lang==="ko"?c.ko:c.en} · ${cnt}`);
+  });
+  const mx=d3.max(data.kws,d=>d.freq)||1,rOf=d=>9+27*Math.sqrt(d.freq/mx);
   const nodes=data.kws.map(d=>({...d}));
-  const sim=d3.forceSimulation(nodes).force("x",d3.forceX(d=>xOf[d.cat]||W/2).strength(.5))
-    .force("y",d3.forceY(H/2+15).strength(.06)).force("collide",d3.forceCollide(d=>rOf(d)+1.5)).stop();
-  for(let i=0;i<260;i++)sim.tick();
-  const g=svg.append("g").selectAll("g").data(nodes).join("g").style("cursor","pointer");
-  g.append("circle").attr("cx",d=>d.x).attr("cy",d=>d.y).attr("r",rOf)
-    .attr("fill",d=>nodeColor(d)).attr("fill-opacity",.85).attr("stroke",CV("--stageStroke")).attr("filter","url(#glow)");
-  g.append("text").attr("x",d=>d.x).attr("y",d=>d.y).attr("dy",".32em").attr("text-anchor","middle")
-    .attr("fill","#0b0d13").attr("font-weight",800).attr("font-size",d=>Math.min(13,rOf(d)*.7))
-    .style("display",d=>rOf(d)>15?null:"none").text(d=>d.id);
-  g.on("mouseover",(e,d)=>showTip(`<b>${d.id}</b> — ${d.freq} · ${catLabel(d.cat)}`,e))
-   .on("mousemove",moveTip).on("mouseout",hideTip);
+  d3.forceSimulation(nodes).force("x",d3.forceX(d=>xOf[d.cat]||W/2).strength(.55))
+    .force("y",d3.forceY(H/2+26).strength(.05)).force("collide",d3.forceCollide(d=>rOf(d)+2)).stop().tick(300);
+  nodes.forEach(n=>{const i=active.findIndex(c=>c.id===n.cat);const lx=colW*i+pad,rx=colW*i+colW-pad;
+    n.x=Math.max(lx+rOf(n),Math.min(rx-rOf(n),n.x));n.y=Math.max(50+rOf(n),Math.min(H-10-rOf(n),n.y));});
+  const node=g.selectAll("g.bn").data(nodes).join("g").attr("class","bn").style("cursor","pointer")
+    .attr("transform",d=>`translate(${d.x},${d.y})`);
+  node.append("circle").attr("r",0).attr("fill",d=>nodeColor(d)).attr("filter","url(#drop)")
+    .transition().duration(560).delay((d,i)=>i*5).ease(d3.easeBackOut).attr("r",rOf);
+  node.append("circle").attr("r",0).attr("fill","url(#gloss)").attr("pointer-events","none")
+    .transition().duration(560).delay((d,i)=>i*5).ease(d3.easeBackOut).attr("r",rOf);
+  node.append("text").attr("dy",".32em").attr("text-anchor","middle").attr("fill","#0b0d13")
+    .attr("font-weight",800).attr("font-size",d=>Math.min(13,rOf(d)*.62))
+    .style("display",d=>rOf(d)>16?null:"none").text(d=>d.id).style("opacity",0)
+    .transition().delay(420).duration(280).style("opacity",1);
+  node.on("mouseover",function(e,d){d3.select(this).raise().selectAll("circle").attr("transform","scale(1.14)");
+      showTip(`<b>${d.id}</b> — ${d.freq} · ${catLabel(d.cat)} · ${sentWord(d.sent||0)}`,e);})
+   .on("mousemove",moveTip)
+   .on("mouseout",function(){d3.select(this).selectAll("circle").attr("transform",null);hideTip();})
+   .on("click",(e,d)=>openKeyword(d.id));
 }
 
 //──────────── 트리맵 ────────────
 function drawTreemap(data){
-  const svg=d3.select("#treeSvg");svg.selectAll("*").remove();
+  const svg=d3.select("#treeSvg");svg.selectAll("*").remove();ensureDefs(svg);
   const el=$("treeSvg"),W=el.clientWidth,H=el.clientHeight;
   if(!data.kws.length)return;
   const byCat=d3.group(data.kws,d=>d.cat);
   const root={name:"root",children:[...byCat].map(([cat,kws])=>
     ({name:cat,cat,children:kws.map(k=>({name:k.id,value:k.freq,d:k}))}))};
   const h=d3.hierarchy(root).sum(d=>d.value||0).sort((a,b)=>b.value-a.value);
-  d3.treemap().size([W,H]).paddingInner(2).paddingTop(20).paddingOuter(2).round(true)(h);
+  d3.treemap().tile(d3.treemapSquarify.ratio(1)).size([W,H]).paddingInner(3).paddingTop(24).paddingOuter(3).round(true)(h);
   const g=svg.append("g");
-  // 분야 배경 라벨
-  g.append("g").selectAll("text").data(h.children||[]).join("text")
-    .attr("x",d=>d.x0+5).attr("y",d=>d.y0+14).attr("fill",d=>colorOf(d.data.cat))
-    .attr("font-weight",800).attr("font-size",12).text(d=>catLabel(d.data.cat));
   const cell=g.selectAll("g.cell").data(h.leaves()).join("g").attr("class","cell")
     .attr("transform",d=>`translate(${d.x0},${d.y0})`).style("cursor","pointer");
-  cell.append("rect").attr("width",d=>d.x1-d.x0).attr("height",d=>d.y1-d.y0)
-    .attr("fill",d=>nodeColor(d.data.d)).attr("fill-opacity",.86).attr("stroke",CV("--stageStroke")).attr("rx",3);
-  cell.append("text").attr("x",5).attr("y",15).attr("fill","#0b0d13").attr("font-weight",700)
-    .attr("font-size",11).text(d=>d.data.name)
-    .each(function(d){if(d.x1-d.x0<30||d.y1-d.y0<18)d3.select(this).style("display","none");});
-  cell.on("mouseover",(e,d)=>showTip(`<b>${d.data.name}</b> — ${d.data.value} · ${catLabel(d.data.d.cat)}`,e))
-    .on("mousemove",moveTip).on("mouseout",hideTip)
+  cell.append("rect").attr("rx",6).attr("height",d=>d.y1-d.y0).attr("width",0)
+    .attr("fill",d=>nodeColor(d.data.d)).attr("filter","url(#drop)")
+    .transition().duration(520).delay((d,i)=>i*4).ease(d3.easeCubicOut).attr("width",d=>d.x1-d.x0);
+  cell.append("rect").attr("rx",6).attr("width",d=>d.x1-d.x0).attr("height",d=>Math.min(d.y1-d.y0,(d.y1-d.y0)*.58))
+    .attr("fill","url(#gloss)").attr("pointer-events","none").style("opacity",0)
+    .transition().delay(380).duration(280).style("opacity",1);
+  cell.append("text").attr("x",7).attr("y",16).attr("fill","#0b0d13").attr("font-weight",800).attr("font-size",11.5)
+    .text(d=>d.data.name).each(function(d){if(d.x1-d.x0<34||d.y1-d.y0<20)d3.select(this).style("display","none");})
+    .style("opacity",0).transition().delay(430).duration(240).style("opacity",1);
+  cell.append("text").attr("x",7).attr("y",30).attr("fill","#0b0d13").attr("fill-opacity",.65).attr("font-size",10)
+    .attr("font-weight",700).text(d=>d.data.value)
+    .each(function(d){if(d.x1-d.x0<34||d.y1-d.y0<36)d3.select(this).style("display","none");});
+  // 분야 헤더(상단)
+  g.append("g").selectAll("text").data(h.children||[]).join("text")
+    .attr("x",d=>d.x0+6).attr("y",d=>d.y0+16).attr("fill",d=>colorOf(d.data.cat))
+    .attr("font-weight",800).attr("font-size",12.5).text(d=>catLabel(d.data.cat));
+  cell.on("mouseover",function(e,d){d3.select(this).raise().select("rect")
+        .attr("stroke",CV("--stageInk")).attr("stroke-width",1.6);
+      showTip(`<b>${d.data.name}</b> — ${d.data.value} · ${catLabel(d.data.d.cat)} · ${sentWord(d.data.d.sent||0)}`,e);})
+    .on("mousemove",moveTip)
+    .on("mouseout",function(){d3.select(this).select("rect").attr("stroke","none");hideTip();})
     .on("click",(e,d)=>{if(window.openKeyword)openKeyword(d.data.name);});
 }
 
@@ -1042,17 +1078,22 @@ function drawRadar(data){
   const maxV=d3.max(R,d=>d.volume)||1,y=d3.scaleSqrt().domain([0,maxV]).range([H-m.b,m.t]);
   const vmed=d3.median(R,d=>d.volume)||1,x0=x(0),ym=y(vmed);
   const g=svg.append("g");
-  // 사분면 배경 틴트
+  // 사분면 배경 틴트(라운드)
   [["#34d399",x0,m.t,W-m.r-x0,ym-m.t],["#f59e0b",m.l,m.t,x0-m.l,ym-m.t],
    ["#5b8cff",x0,ym,W-m.r-x0,H-m.b-ym],["#fb7185",m.l,ym,x0-m.l,H-m.b-ym]]
-   .forEach(([c,X,Y,Wd,Ht])=>g.append("rect").attr("x",X).attr("y",Y)
-     .attr("width",Math.max(0,Wd)).attr("height",Math.max(0,Ht)).attr("fill",c).attr("fill-opacity",.06));
+   .forEach(([c,X,Y,Wd,Ht])=>g.append("rect").attr("x",X+2).attr("y",Y+2).attr("rx",12)
+     .attr("width",Math.max(0,Wd-4)).attr("height",Math.max(0,Ht-4)).attr("fill",c).attr("fill-opacity",.08));
   // 분할선
   g.append("line").attr("x1",x0).attr("x2",x0).attr("y1",m.t).attr("y2",H-m.b).attr("stroke",line).attr("stroke-dasharray","4 4");
   g.append("line").attr("x1",m.l).attr("x2",W-m.r).attr("y1",ym).attr("y2",ym).attr("stroke",line).attr("stroke-dasharray","4 4");
-  // 사분면 라벨
-  [["hot",W-m.r-6,m.t+15,"end"],["established",m.l+6,m.t+15,"start"],["emerging",W-m.r-6,H-m.b-8,"end"],["fading",m.l+6,H-m.b-8,"start"]]
-   .forEach(([q,X,Y,a])=>g.append("text").attr("x",X).attr("y",Y).attr("text-anchor",a).attr("fill",mut).attr("font-weight",800).attr("font-size",12).text(t("rq_"+q)));
+  // 사분면 라벨(이모지 pill)
+  const QEMO={hot:"🔥",established:"🏛",emerging:"🌱",fading:"💧"};
+  [["hot",W-m.r-8,m.t+18,"end"],["established",m.l+8,m.t+18,"start"],["emerging",W-m.r-8,H-m.b-12,"end"],["fading",m.l+8,H-m.b-12,"start"]]
+   .forEach(([q,X,Y,a])=>{const wp=84,gp=g.append("g");
+     gp.append("rect").attr("x",a==="end"?X-wp:X).attr("y",Y-15).attr("width",wp).attr("height",23).attr("rx",11)
+       .attr("fill",CV("--card")).attr("stroke",CV("--line")).attr("opacity",.92);
+     gp.append("text").attr("x",a==="end"?X-10:X+10).attr("y",Y).attr("text-anchor",a)
+       .attr("fill",mut).attr("font-weight",800).attr("font-size",12).text(`${QEMO[q]} ${t("rq_"+q)}`);});
   // 축 라벨
   g.append("text").attr("x",(m.l+W-m.r)/2).attr("y",H-8).attr("text-anchor","middle").attr("fill",mut).attr("font-size",11).text(t("radar_x"));
   g.append("text").attr("transform",`translate(15,${(m.t+H-m.b)/2}) rotate(-90)`).attr("text-anchor","middle").attr("fill",mut).attr("font-size",11).text(t("radar_y"));
@@ -1070,14 +1111,19 @@ function drawRadar(data){
   const labelSet=new Set(nodes.slice().sort((a,b)=>(b.volume+b.degree)-(a.volume+a.degree)).slice(0,28).map(n=>n.id));
   const node=g.selectAll("g.rn").data(nodes).join("g").attr("class","rn").style("cursor","pointer")
     .attr("transform",d=>`translate(${d.x},${d.y})`);
-  node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("fill-opacity",.82).attr("stroke",strk).attr("filter","url(#glow)");
+  node.append("circle").attr("r",0).attr("fill",d=>nodeColor(d)).attr("filter","url(#drop)")
+    .transition().duration(520).delay((d,i)=>i*4).ease(d3.easeBackOut).attr("r",rOf);
+  node.append("circle").attr("r",0).attr("fill","url(#gloss)").attr("pointer-events","none")
+    .transition().duration(520).delay((d,i)=>i*4).ease(d3.easeBackOut).attr("r",rOf);
   node.append("text").attr("dy",d=>-rOf(d)-3).attr("text-anchor","middle").attr("fill",ink).attr("font-size",11).attr("font-weight",700)
     .attr("stroke",strk).attr("stroke-width",2.5).attr("paint-order","stroke")
     .style("display",d=>labelSet.has(d.id)?null:"none").text(d=>d.id);
-  node.on("mouseover",function(e,d){d3.select(this).raise().select("text").style("display",null);
+  node.on("mouseover",function(e,d){d3.select(this).raise().selectAll("circle").attr("transform","scale(1.18)");
+      d3.select(this).select("text").style("display",null);
       showTip(`<b>${d.id}</b> · ${t("rq_"+d.quadrant)}<br>${lang==="ko"?"볼륨":"vol"} ${d.volume} · ${lang==="ko"?"모멘텀":"mom"} ${d.momentum>0?"+":""}${d.momentum} · ${lang==="ko"?"연결":"links"} ${d.degree}`,e);})
     .on("mousemove",moveTip)
-    .on("mouseout",function(e,d){if(!labelSet.has(d.id))d3.select(this).select("text").style("display","none");hideTip();})
+    .on("mouseout",function(e,d){d3.select(this).selectAll("circle").attr("transform",null);
+      if(!labelSet.has(d.id))d3.select(this).select("text").style("display","none");hideTip();})
     .on("click",(e,d)=>openKeyword(d.id));
 }
 async function radarAiReading(){
