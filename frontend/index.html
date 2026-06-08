@@ -160,6 +160,14 @@
   /* AI 드로어 */
   .aiout{margin-top:10px;font-size:13px;line-height:1.65;background:var(--card);border:1px solid var(--line);
     border-radius:10px;padding:12px;min-height:8px}.aiout:empty{display:none}
+  /* AI 출력 마크다운 스타일(드로어/레이더/히스토리 공통) */
+  .aiout p,.radarai p{margin:6px 0}
+  .aiout h4,.radarai h4{margin:10px 0 4px;font-size:13px;font-weight:800;color:var(--accent)}
+  .aiout ul,.aiout ol,.radarai ul,.radarai ol{margin:6px 0 6px 2px;padding-left:18px}
+  .aiout li,.radarai li{margin:3px 0}
+  .aiout strong,.radarai strong{color:var(--txt);font-weight:800}
+  .aiout code,.radarai code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
+  .aiout p:first-child,.radarai p:first-child,.aiout h4:first-child,.radarai h4:first-child{margin-top:0}
   .aifoot{font-size:11px;color:var(--muted);padding:4px 2px}
   #aiBtn{background:linear-gradient(90deg,#5b8cff,#a855f7);color:#fff;border:none}
 </style>
@@ -748,14 +756,15 @@ function drawCloud(data){
       const g=svg.append("g").attr("transform",`translate(${W/2},${H/2})`);
       g.selectAll("text").data(ws).join("text")
         .style("font-family","Apple SD Gothic Neo,sans-serif").style("font-weight",800).style("cursor","pointer")
-        .style("fill",d=>nodeColor(d)).style("fill-opacity",d=>d.op).attr("filter","url(#soft)")
+        .style("fill",d=>nodeColor(d)).style("fill-opacity",d=>d.op)
         .attr("text-anchor","middle").attr("font-size",d=>d.size)
         .attr("transform",d=>`translate(${d.x},${d.y})rotate(${d.rotate})`).text(d=>d.text)
         .style("transition","fill-opacity .15s")
         .on("mouseover",function(e,d){d3.select(this).style("fill-opacity",1).attr("filter","url(#glow2)");
-          showTip(`<b>${d.text}</b> — ${d.freq} · ${catLabel(d.cat)}`,e);})
+          showTip(`<b>${d.text}</b> — ${d.freq} · ${catLabel(d.cat)} · ${sentWord(d.sent||0)}`,e);})
         .on("mousemove",moveTip)
-        .on("mouseout",function(e,d){d3.select(this).style("fill-opacity",d.op).attr("filter","url(#soft)");hideTip();});
+        .on("mouseout",function(e,d){d3.select(this).style("fill-opacity",d.op).attr("filter",null);hideTip();})
+        .on("click",(e,d)=>openKeyword(d.text));
       // 글로우 필터(호버용)
       const f=defs.append("filter").attr("id","glow2").attr("x","-60%").attr("y","-60%").attr("width","220%").attr("height","220%");
       f.append("feGaussianBlur").attr("stdDeviation","2.6").attr("result","b");
@@ -876,7 +885,26 @@ async function drawSpark(kw,node){
 let aiStatus=null,aiLabels=null;
 function aiParams(extra){const p=new URLSearchParams(Object.assign({lang,hours:$("hours").value},extra||{}));
   selected("cat").forEach(v=>p.append("categories",v));regionIds().forEach(v=>p.append("regions",v));return p;}
-const fmtAI=s=>(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/\n/g,"<br>");
+// 마크다운 → HTML (헤더·굵게·기울임·코드·불릿/번호 목록) — AI 출력 비주얼화
+function mdToHtml(md){
+  if(!md)return"";
+  let s=md.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  s=s.replace(/`([^`]+)`/g,"<code>$1</code>")
+     .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+     .replace(/(?<![*\w])\*([^*\n]+)\*(?!\*)/g,"<em>$1</em>");
+  const lines=s.split("\n"),out=[];let ul=false,ol=false;
+  const close=()=>{if(ul){out.push("</ul>");ul=false;}if(ol){out.push("</ol>");ol=false;}};
+  for(const ln of lines){
+    let m=ln.match(/^\s*#{1,6}\s+(.*)$/);
+    if(m){close();out.push("<h4>"+m[1]+"</h4>");continue;}
+    if(m=ln.match(/^\s*[-*•]\s+(.*)$/)){if(ol){out.push("</ol>");ol=false;}if(!ul){out.push("<ul>");ul=true;}out.push("<li>"+m[1]+"</li>");continue;}
+    if(m=ln.match(/^\s*\d+[.)]\s+(.*)$/)){if(ul){out.push("</ul>");ul=false;}if(!ol){out.push("<ol>");ol=true;}out.push("<li>"+m[1]+"</li>");continue;}
+    if(ln.trim()===""){close();continue;}
+    close();out.push("<p>"+ln+"</p>");
+  }
+  close();return out.join("");
+}
+const fmtAI=s=>mdToHtml(s);
 async function openAI(){
   $("aiDrawer").classList.add("open");
   if(aiStatus===null){try{aiStatus=await fetch(API+"/api/ai/status").then(r=>r.json());}catch(e){aiStatus={enabled:false};}}
