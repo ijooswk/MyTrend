@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     mytrend_per_feed_limit: int = 60
     mytrend_cache_ttl: int = 120
     mytrend_ingest_on_start: bool = True
+    # 원시 기사 보존 기간(일). 이보다 오래된 '기사'는 프루닝되지만 일별 롤업은 영구 보존.
+    mytrend_article_retention_days: int = 120
 
 
 @lru_cache

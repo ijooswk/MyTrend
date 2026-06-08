@@ -208,6 +208,54 @@ async def api_correlation(
             "labels": {w: w for w in keywords}}
 
 
+@app.get("/api/history")
+def api_history(
+    keyword: str = Query(..., min_length=1),
+    days: int = Query(180, ge=7, le=1825),
+    interval: str = Query("day", pattern="^(day|week|month)$"),
+    regions: list[str] | None = Query(None),
+):
+    """키워드의 장기 시계열(롤업 기반, 일/주/월)."""
+    from . import history as H
+    until = H.today_utc()
+    since = H.day_add(until, -(days - 1))
+    return JSONResponse(H.query_history(state["db"], keyword, since_day=since,
+                                        until_day=until, interval=interval, regions=regions))
+
+
+@app.get("/api/breakouts")
+def api_breakouts(
+    recent_days: int = Query(7, ge=1, le=30),
+    baseline_days: int = Query(90, ge=14, le=730),
+    z_min: float = Query(2.0, ge=1.0, le=6.0),
+    top: int = Query(20, ge=1, le=60),
+    regions: list[str] | None = Query(None),
+):
+    """과거 베이스라인 대비 비정상 급증 키워드(z-score)."""
+    from . import history as H
+    return JSONResponse({"breakouts": H.detect_breakouts(
+        state["db"], recent_days=recent_days, baseline_days=baseline_days,
+        z_min=z_min, top=top, regions=regions)})
+
+
+@app.get("/api/seasonality")
+def api_seasonality(
+    keyword: str = Query(..., min_length=1),
+    days: int = Query(400, ge=60, le=1825),
+    regions: list[str] | None = Query(None),
+):
+    """키워드의 주/월/년 반복 주기(자기상관) 탐지."""
+    from . import history as H
+    return JSONResponse(H.detect_seasonality(state["db"], keyword, days=days, regions=regions))
+
+
+@app.post("/api/rollup")
+def api_rollup(max_days: int = Query(1200, ge=1, le=3650)):
+    """저장된 기사 전 기간을 일별 롤업으로 백필(수동)."""
+    from . import history as H
+    return H.backfill(state["db"], max_days=max_days)
+
+
 @app.get("/api/export")
 async def api_export(
     fmt: str = Query("csv", pattern="^(csv|json)$"),

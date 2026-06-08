@@ -60,3 +60,9 @@ def test_endpoints_smoke():
         # 상관 행렬 200 + 스키마(빈 DB → 빈 행렬)
         cor = c.get("/api/correlation", params={"metric": "npmi", "top": 10}).json()
         assert cor["metric"] == "npmi" and "matrix" in cor and "keywords" in cor
+        # 장기 분석 엔드포인트(빈 DB에서도 스키마 유효)
+        assert c.post("/api/rollup").status_code == 200
+        h = c.get("/api/history", params={"keyword": "AI", "days": 30}).json()
+        assert h["keyword"] == "AI" and "points" in h
+        assert "breakouts" in c.get("/api/breakouts").json()
+        assert "cycles" in c.get("/api/seasonality", params={"keyword": "AI"}).json()
