@@ -336,6 +336,8 @@ const STR={
     img_copied:"📋 이미지를 클립보드에 복사했습니다",img_saved:"⬇ 이미지를 PNG로 저장했습니다",img_none:"이 화면은 이미지로 내보낼 수 없습니다",
     cm_cat:"분야",cm_cluster:"군집",cm_sent:"감성",
     d_freq:"빈도",d_sentiment:"감성",d_trend:"시간 추이",d_related:"연관 키워드",d_articles:"관련 기사",
+    d_digest:"본문 AI 분석",d_digest_btn:"✨ 본문 가져와 분석",d_digest_loading:"본문 수집·분석 중…",
+    d_digest_none:"이 키워드의 기사를 찾지 못했습니다",d_digest_fetched:"본문 {n}/{total}건 기반",
     ins_busiest:"📊 최다 분야 {cat} · {count}건",ins_rising:"🚀 급상승 {kw} ×{score}",
     ins_hub:"🔗 허브 {kw} · 연결 {deg}",ins_sentiment:"🙂 전반 감성 {label}",ins_cluster:"🧩 핵심 토픽 {kws}",
     ai_title:"✨ AI 분석",ai_brief_label:"트렌드 브리핑",ai_brief_btn:"브리핑 생성",
@@ -375,6 +377,8 @@ const STR={
     img_copied:"📋 Image copied to clipboard",img_saved:"⬇ Image saved as PNG",img_none:"This view can't be exported as an image",
     cm_cat:"Field",cm_cluster:"Cluster",cm_sent:"Sentiment",
     d_freq:"Frequency",d_sentiment:"Sentiment",d_trend:"Trend",d_related:"Related",d_articles:"Articles",
+    d_digest:"Full-text AI analysis",d_digest_btn:"✨ Fetch & analyze articles",d_digest_loading:"Fetching & analyzing…",
+    d_digest_none:"No articles found for this keyword",d_digest_fetched:"based on {n}/{total} full texts",
     ins_busiest:"📊 Top field {cat} · {count}",ins_rising:"🚀 Rising {kw} ×{score}",
     ins_hub:"🔗 Hub {kw} · {deg} links",ins_sentiment:"🙂 Overall sentiment {label}",ins_cluster:"🧩 Lead topic {kws}",
     ai_title:"✨ AI analysis",ai_brief_label:"Trend briefing",ai_brief_btn:"Generate briefing",
@@ -826,13 +830,30 @@ async function openKeyword(kw){
       <div><div class="kl">${catLabel(node.cat)}</div><div class="kvv" style="color:${colorOf(node.cat)}">●</div></div>
     </div>
     <div class="kwsec"><div class="kl">${t("d_trend")}</div><div id="kwSpark" style="color:var(--muted);font-size:12px">…</div></div>
+    <div class="kwsec"><div class="kl">${t("d_digest")}</div>
+      <button class="ailabelbtn" id="kwDigestBtn">${t("d_digest_btn")}</button>
+      <div id="kwDigestOut" class="aiout"></div></div>
     <div class="kwsec"><div class="kl">${t("d_related")}</div><div class="relwrap">${rel.slice(0,14).map(([k,v])=>`<span class="kwchip rel" data-rk="${encodeURIComponent(k)}">${k}<b>${v}</b></span>`).join("")||"—"}</div></div>
     <div class="kwsec"><div class="kl">${t("d_articles")}</div>${arts.map(a=>`<a class="artitem" href="${a.url}" target="_blank" rel="noopener"><div class="t">${a.title}</div><div class="m"><span>${a.publisher||""}</span><span>${catLabel(a.category)}</span></div></a>`).join("")||"—"}</div>`;
   $("kwDrawer").classList.add("open");
   $("kwBody").querySelectorAll(".rel").forEach(el=>el.addEventListener("click",()=>openKeyword(decodeURIComponent(el.dataset.rk))));
+  $("kwDigestBtn").addEventListener("click",()=>runKeywordDigest(kw));
   drawSpark(kw,node);
 }
 window.openKeyword=openKeyword;
+async function runKeywordDigest(kw){
+  const out=$("kwDigestOut"),btn=$("kwDigestBtn");
+  out.innerHTML=`<span class="spin"></span> ${t("d_digest_loading")}`;btn.disabled=true;
+  try{
+    const p=new URLSearchParams({keyword:kw,lang,hours:"48",limit:"4"});regionIds().forEach(v=>p.append("regions",v));
+    const r=await fetch(API+"/api/ai/keyword-digest?"+p,{method:"POST"});
+    if(!r.ok){out.textContent=r.status===503?t("ai_disabled"):(r.status===409?t("d_digest_none"):t("ai_err"));}
+    else{const d=await r.json();
+      const note=d.fetched!=null?`<div class="aifoot">${t("d_digest_fetched",{n:d.fetched,total:d.used})}</div>`:"";
+      out.innerHTML=fmtAI(d.summary)+note;}
+  }catch(e){out.textContent=t("ai_err");}
+  btn.disabled=false;
+}
 async function drawSpark(kw,node){
   try{
     const p=new URLSearchParams({keyword:kw,hours:$("hours").value,buckets:"24"});
