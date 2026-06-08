@@ -23,6 +23,15 @@ def test_db_upsert_dedup_and_query():
     assert db.query(since=now - 3600, categories=["BUSINESS"]) == []
 
 
+def test_eodhd_key_coalesce_docker_scenario():
+    # Docker 가 빈 EODHD_API_KEY 를 주입해도 EODHD_API_TOKEN 으로 폴백해야 함(회귀 방지)
+    from app.config import Settings
+    assert Settings(eodhd_api_key="", eodhd_api_token="tok123").eodhd_key == "tok123"
+    assert Settings(eodhd_api_key="key456", eodhd_api_token="").eodhd_key == "key456"
+    assert Settings(eodhd_api_key="key456", eodhd_api_token="tok123").eodhd_key == "key456"
+    assert Settings(eodhd_api_key="", eodhd_api_token="").eodhd_key == ""
+
+
 def test_eodhd_query_mode_ticker_vs_tag():
     assert eodhd_query_mode("AAPL") == "s"
     assert eodhd_query_mode("TSLA.US") == "s"
