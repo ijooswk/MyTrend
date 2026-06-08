@@ -14,9 +14,9 @@ from .nlp import build_trends, compute_rising
 _CACHE: dict[str, tuple[float, dict]] = {}
 
 
-def _key(categories, regions, sources, hours, min_freq, max_kw, per_feed) -> str:
+def _key(categories, regions, sources, hours, min_freq, max_kw, per_feed, assoc) -> str:
     return json.dumps([sorted(categories), sorted(regions),
-                       sorted(sources or []), hours, min_freq, max_kw, per_feed],
+                       sorted(sources or []), hours, min_freq, max_kw, per_feed, assoc],
                       ensure_ascii=False)
 
 
@@ -25,6 +25,7 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
                      sources: list[str] | None = None,
                      hours: int | None = None, min_freq: int = 2,
                      max_kw: int = 80, per_feed: int | None = None,
+                     assoc_threshold: float = 0.2,
                      live: bool = True) -> dict:
     """트렌드 맵 반환.
 
@@ -36,7 +37,7 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
     regions = regions or REGION_IDS
     hours = hours or s.mytrend_default_hours
 
-    ck = _key(categories, regions, sources, hours, min_freq, max_kw, per_feed)
+    ck = _key(categories, regions, sources, hours, min_freq, max_kw, per_feed, assoc_threshold)
     now = time.time()
     hit = _CACHE.get(ck)
     if hit and hit[0] > now:
@@ -55,7 +56,8 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
         arts = db.query(since=since, categories=categories, regions=regions, sources=sources)
         backfilled = True
 
-    payload = build_trends(arts, min_freq=min_freq, max_kw=max_kw)
+    payload = build_trends(arts, min_freq=min_freq, max_kw=max_kw,
+                           assoc_threshold=assoc_threshold)
     payload["rising"] = compute_rising(arts, now - (hours / 2) * 3600)
     payload["insights"] = make_insights(payload)
     payload.update({

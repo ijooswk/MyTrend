@@ -222,17 +222,20 @@ def compute_rising(articles: list, mid_ts: float, *, top: int = 15,
     return rising[:top]
 
 
-def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict:
+def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80,
+                 assoc_threshold: float = 0.2) -> dict:
     """기사 리스트 → 트렌드 맵 JSON(nodes/links + 분야 집계).
 
-    articles: dataclass Article 또는 dict 모두 허용.
+    링크는 NPMI(정규화 점별상호정보) 연관도로 계산해 단순 동시출현보다
+    의미있는 상관만 남긴다.  articles: dataclass Article 또는 dict 모두 허용.
     """
+    from .assoc import compute_associations  # 순환 import 방지(지연 로딩)
+
     def g(a, k):
         return getattr(a, k) if not isinstance(a, dict) else a[k]
 
     freq: Counter = Counter()
     cat_score: dict[str, Counter] = defaultdict(Counter)
-    co: Counter = Counter()
     kw_articles: dict[str, list] = defaultdict(list)
     kw_sent: dict[str, list] = defaultdict(list)        # 키워드별 감성 점수 모음
     cat_sent: dict[str, list] = defaultdict(list)       # 분야별 감성 점수 모음
@@ -252,8 +255,6 @@ def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict
                     "title": title, "url": g(a, "url"),
                     "publisher": g(a, "publisher"), "category": cat,
                 })
-        for x, y in combinations(sorted(toks), 2):
-            co[(x, y)] += 1
 
     ranked = [w for w, c in freq.most_common() if c >= min_freq][:max_kw]
     keep = set(ranked)
@@ -272,11 +273,8 @@ def build_trends(articles: list, *, min_freq: int = 2, max_kw: int = 80) -> dict
             "sent": sent, "sentLabel": sent_label(sent),
         })
 
-    links = []
-    co_min = max(2, min_freq)
-    for (x, y), c in co.items():
-        if c >= co_min and x in keep and y in keep:
-            links.append({"source": x, "target": y, "value": c})
+    # NPMI 연관 엣지(백본 필터) — 단순 동시출현보다 의미있는 상관만
+    links = compute_associations(articles, ranked, min_co=2, min_npmi=assoc_threshold)
 
     # 토픽 군집(커뮤니티) 검출 후 노드에 부여
     cid = detect_clusters(ranked, links)

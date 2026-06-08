@@ -78,12 +78,14 @@ async def api_trends(
     min_freq: int = Query(2, ge=1, le=10),
     max_kw: int = Query(80, ge=10, le=300),
     per_feed: int | None = Query(None, ge=5, le=200),
+    assoc_threshold: float = Query(0.2, ge=0.0, le=0.8),
     live: bool = Query(True),
 ):
     """트렌드 맵(키워드 노드/링크 + 분야 집계) 반환."""
     data = await get_trends(
         state["db"], categories=categories, regions=regions, sources=sources,
-        hours=hours, min_freq=min_freq, max_kw=max_kw, per_feed=per_feed, live=live,
+        hours=hours, min_freq=min_freq, max_kw=max_kw, per_feed=per_feed,
+        assoc_threshold=assoc_threshold, live=live,
     )
     return JSONResponse(data)
 
