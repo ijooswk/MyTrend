@@ -19,6 +19,19 @@ def test_short_acronym_kept_and_stopwords_dropped():
     assert "the" not in toks and "new" not in toks and "big" not in toks
 
 
+def test_generic_low_information_words_filtered():
+    # 특정 의미가 약한 generic 단어는 키워드에서 제외(한/영)
+    toks = tokenize("정부 대응 가능성, 위기 시장 상황 주목 — 점검 필요")
+    for w in ["대응", "가능성", "위기", "시장", "상황", "주목", "점검", "정부"]:
+        assert w not in toks
+    en = tokenize("Market crisis: demand and support measures, possible response")
+    for w in ["market", "crisis", "demand", "support", "measures", "possible", "response"]:
+        assert w not in en
+    # 의미있는 키워드는 보존
+    keep = tokenize("삼성전자 AI 반도체 위기 대응 시장")
+    assert "삼성전자" in keep and "AI" in keep and "반도체" in keep
+
+
 def test_korean_compound_noun_merge():
     # kiwi가 '인공지능'을 인공/지능으로 과분할하면 인접(공백 없음) 결합으로 복원
     toks = tokenize("삼성전자 인공지능 반도체 신제품 공개")
