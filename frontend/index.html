@@ -95,6 +95,7 @@
     animation:sp .7s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
   .tooltip{position:fixed;pointer-events:none;background:#0b0d13;border:1px solid var(--line);border-radius:8px;
     padding:8px 11px;font-size:12px;z-index:60;display:none;max-width:320px;line-height:1.5}.tooltip b{color:var(--accent)}
+  .netctrl{position:absolute;left:14px;top:14px;z-index:5}
   .barpanel{position:absolute;right:14px;top:14px;width:220px;background:rgba(11,14,22,.82);border:1px solid var(--line);
     border-radius:12px;padding:12px;backdrop-filter:blur(6px)}
   .barpanel h4{margin:0 0 8px;font-size:12px;color:var(--muted);font-weight:800;text-transform:uppercase}
@@ -195,6 +196,8 @@
         <input type="range" id="maxKw" min="20" max="200" step="10" value="80"></div>
       <div class="field"><div><span data-i18n="s_count"></span> <span class="val" id="perFeedVal">50</span></div>
         <input type="range" id="perFeed" min="10" max="100" step="5" value="50"></div>
+      <div class="field"><div><span data-i18n="s_assoc"></span> <span class="val" id="assocVal">0.2</span></div>
+        <input type="range" id="assoc" min="0.1" max="0.7" step="0.05" value="0.2"></div>
     </div>
     <button class="run" id="run" data-i18n="btn_generate"></button>
     <button class="ghost" id="ingest" data-i18n="btn_ingest"></button>
@@ -214,6 +217,9 @@
     <div class="insights" id="insights"></div>
     <div class="view">
       <div class="pane active" data-v="net">
+        <div class="netctrl"><span class="cmode" id="assocMode">
+          <button data-am="cooccur" class="on" data-i18n="am_cooccur"></button>
+          <button data-am="temporal" data-i18n="am_temporal"></button></span></div>
         <svg id="netSvg"></svg>
         <div class="barpanel"><h4 data-i18n="top_kw"></h4><div id="topList"></div></div>
         <div class="empty" id="netEmpty"><b data-i18n="empty_title"></b><span data-i18n="empty_desc"></span></div>
@@ -259,7 +265,7 @@ const STR={
     h_search:"키워드 검색",search_ph:"키워드로 뉴스 검색…",btn_search:"검색",
     h_cats:"분야",h_sources:"데이터 소스",h_settings:"수집/표시 설정",
     s_hours:"시간 범위 (최근",unit_h:"시간)",s_minfreq:"최소 출현 빈도",s_maxkw:"표시 키워드 수",
-    s_count:"뉴스 수 (소스·피드별)",
+    s_count:"뉴스 수 (소스·피드별)",s_assoc:"연관 강도 임계(NPMI)",am_cooccur:"동시출현",am_temporal:"동시추세",
     btn_generate:"트렌드 맵 생성 ▸",btn_ingest:"⟳ 지금 새로 수집",btn_live:"🔴 라이브 자동갱신",
     tab_net:"🕸 키워드 네트워크",tab_cloud:"☁️ 워드클라우드",tab_bubble:"🫧 분야별 버블",tab_tree:"🟩 트리맵",tab_rising:"📈 급상승",
     top_kw:"상위 키워드",empty_title:"아직 데이터가 없습니다",
@@ -290,7 +296,7 @@ const STR={
     h_search:"Keyword search",search_ph:"Search news by keyword…",btn_search:"Search",
     h_cats:"Categories",h_sources:"Data sources",h_settings:"Fetch / display",
     s_hours:"Time window (last",unit_h:"h)",s_minfreq:"Min frequency",s_maxkw:"Max keywords",
-    s_count:"News count (per source)",
+    s_count:"News count (per source)",s_assoc:"Association threshold (NPMI)",am_cooccur:"Co-occurrence",am_temporal:"Co-movement",
     btn_generate:"Generate trend map ▸",btn_ingest:"⟳ Fetch now",btn_live:"🔴 Live auto-refresh",
     tab_net:"🕸 Keyword network",tab_cloud:"☁️ Word cloud",tab_bubble:"🫧 Category bubbles",tab_tree:"🟩 Treemap",tab_rising:"📈 Rising",
     top_kw:"Top keywords",empty_title:"No data yet",
@@ -340,6 +346,7 @@ const $=id=>document.getElementById(id);
 let CFG=null,CATS=[],REGIONS=[],SOURCES=[];
 let region=HASH.get("r")||"ALL",lastData=null,searchKw=[],lastSearch=null;
 let liveOn=false,liveTimer=null;
+let assocMode=localStorage.getItem("mt_assocmode")||"cooccur",tempLinks=null;
 const colorOf=id=>(CATS.find(c=>c.id===id)||{color:"#94a0b8"}).color;
 const catLabel=id=>{const c=CATS.find(x=>x.id===id);return c?(lang==="ko"?c.ko:c.en):id;};
 // 색상 모드: 분야(cat) / 토픽군집(cluster) / 감성(sentiment)
@@ -361,7 +368,7 @@ const showTip=(h,e)=>{tip.innerHTML=h;tip.style.display="block";moveTip(e);};
 const moveTip=e=>{tip.style.left=Math.min(e.clientX+14,innerWidth-330)+"px";tip.style.top=(e.clientY+14)+"px";};
 const hideTip=()=>tip.style.display="none";
 const bind=(id,vid)=>{const s=$(id),v=$(vid);s.addEventListener("input",()=>v.textContent=s.value);};
-bind("hours","hoursVal");bind("minFreq","minFreqVal");bind("maxKw","maxKwVal");bind("perFeed","perFeedVal");
+bind("hours","hoursVal");bind("minFreq","minFreqVal");bind("maxKw","maxKwVal");bind("perFeed","perFeedVal");bind("assoc","assocVal");
 function setStatus(html,busy){$("status").innerHTML=(busy?'<span class="spin"></span>':"")+html;}
 function renderInsights(data){
   const box=$("insights");if(!data||!data.insights){box.innerHTML="";return;}
@@ -452,7 +459,7 @@ function trendParams(){
   regionIds().forEach(v=>p.append("regions",v));
   selected("src").forEach(v=>p.append("sources",v));
   p.set("hours",$("hours").value);p.set("min_freq",$("minFreq").value);p.set("max_kw",$("maxKw").value);
-  p.set("per_feed",$("perFeed").value);
+  p.set("per_feed",$("perFeed").value);p.set("assoc_threshold",$("assoc").value);
   return p;
 }
 async function run(){
@@ -460,7 +467,7 @@ async function run(){
   $("run").disabled=true;$("netEmpty").style.display="none";setStatus(t("st_analyzing"),true);
   try{
     const data=await fetch(API+"/api/trends?"+trendParams()).then(r=>r.json());
-    lastData=data;aiLabels=null;renderControls();updateKPIs(data);renderInsights(data);
+    lastData=data;aiLabels=null;tempLinks=null;renderControls();updateKPIs(data);renderInsights(data);
     if(!data.kws||!data.kws.length){setStatus(t("st_nokw"));$("run").disabled=false;return;}
     redraw();
     const so=data.sentimentOverall||0;
@@ -557,6 +564,27 @@ function ensureDefs(svg){
   const m=f.append("feMerge");m.append("feMergeNode").attr("in","b");m.append("feMergeNode").attr("in","SourceGraphic");
 }
 
+//──────────── 연관 엣지 소스(동시출현/동시추세) ────────────
+function currentLinks(){return assocMode==="temporal"?(tempLinks||[]):((lastData&&lastData.links)||[]);}
+async function loadTemporal(){
+  if(!lastData)return;
+  const p=new URLSearchParams({metric:"temporal",hours:$("hours").value,top:"28",buckets:"24"});
+  selected("cat").forEach(v=>p.append("categories",v));regionIds().forEach(v=>p.append("regions",v));
+  try{
+    const cm=await fetch(API+"/api/correlation?"+p).then(r=>r.json());
+    const ks=cm.keywords||[],M=cm.matrix||[],th=Math.max(0.4,+$("assoc").value),edges=[];
+    for(let i=0;i<ks.length;i++)for(let j=i+1;j<ks.length;j++){const r=M[i][j];
+      if(r>=th)edges.push({source:ks[i],target:ks[j],npmi:r,value:r});}
+    tempLinks=edges;
+  }catch(e){tempLinks=[];}
+}
+$("assocMode").querySelectorAll("button").forEach(b=>b.addEventListener("click",async()=>{
+  assocMode=b.dataset.am;localStorage.setItem("mt_assocmode",assocMode);
+  $("assocMode").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+  if(assocMode==="temporal"&&!tempLinks){setStatus(t("ai_loading"),true);await loadTemporal();setStatus("");}
+  if(lastData)drawNetwork(lastData);}));
+$("assocMode").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x.dataset.am===assocMode));
+
 //──────────── 네트워크(개선) ────────────
 let netSim=null;
 function drawNetwork(data){
@@ -565,18 +593,24 @@ function drawNetwork(data){
   if(netSim)netSim.stop();
   const g=svg.append("g");
   svg.call(d3.zoom().scaleExtent([.3,4]).on("zoom",ev=>g.attr("transform",ev.transform)));
-  const nodes=data.kws.map(d=>({...d})),links=data.links.map(d=>({...d}));
+  const nodes=data.kws.map(d=>({...d}));
+  const nIds=new Set(nodes.map(n=>n.id));
+  const links=currentLinks().filter(l=>nIds.has(l.source.id||l.source)&&nIds.has(l.target.id||l.target)).map(d=>({...d}));
   const mx=d3.max(nodes,d=>d.freq)||1,rOf=d=>6+20*Math.sqrt(d.freq/mx);
   netSim=d3.forceSimulation(nodes)
-    .force("link",d3.forceLink(links).id(d=>d.id).distance(d=>64-Math.min(40,d.value*4)).strength(.45))
+    .force("link",d3.forceLink(links).id(d=>d.id).distance(d=>56-30*(d.npmi||0)).strength(d=>.2+.5*(d.npmi||0)))
     .force("charge",d3.forceManyBody().strength(-200))
     .force("center",d3.forceCenter(W/2,H/2))
     .force("collide",d3.forceCollide(d=>rOf(d)+12));
   const nById=Object.fromEntries(nodes.map(n=>[n.id,n]));
+  const isTemporal=assocMode==="temporal";
   const link=g.append("g").selectAll("path").data(links).join("path")
-    .attr("fill","none").attr("stroke-linecap","round")
+    .attr("fill","none").attr("stroke-linecap","round").style("cursor","pointer")
     .attr("stroke",d=>nodeColor(nById[d.source.id||d.source]||{}))
-    .attr("stroke-opacity",.22).attr("stroke-width",d=>1+Math.sqrt(d.value)*1.1);
+    .attr("stroke-opacity",d=>.12+.5*(d.npmi||0)).attr("stroke-width",d=>1+4*(d.npmi||0));
+  link.on("mouseover",(e,d)=>{const a=d.source.id||d.source,b=d.target.id||d.target;
+    showTip(`<b>${a} ↔ ${b}</b><br>${isTemporal?(lang==="ko"?"동조 상관":"co-movement"):"NPMI"} ${(d.npmi||0).toFixed(2)}${d.count?` · ${lang==="ko"?"공유":"shared"} ${d.count}`:""}`,e);})
+    .on("mousemove",moveTip).on("mouseout",hideTip);
   const node=g.append("g").selectAll("g").data(nodes).join("g").style("cursor","pointer").call(drag(netSim));
   node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d))
     .attr("stroke","#0b0e16").attr("stroke-width",1.5).attr("filter","url(#glow)").attr("fill-opacity",.92);
@@ -594,7 +628,7 @@ function drawNetwork(data){
     link.attr("stroke-opacity",l=>l.source.id===d.id||l.target.id===d.id?.9:.04);
     node.style("opacity",n=>n.id===d.id||adj.has(n.id)?1:.18);})
    .on("mousemove",moveTip)
-   .on("mouseout",()=>{hideTip();link.attr("stroke-opacity",.22);node.style("opacity",1);})
+   .on("mouseout",()=>{hideTip();link.attr("stroke-opacity",l=>.12+.5*(l.npmi||0));node.style("opacity",1);})
    .on("click",(e,d)=>{if(!e.defaultPrevented)openKeyword(d.id);});
   netSim.on("tick",()=>{
     link.attr("d",d=>{const x1=d.source.x,y1=d.source.y,x2=d.target.x,y2=d.target.y;
