@@ -170,6 +170,8 @@
   .aiout p:first-child,.radarai p:first-child,.aiout h4:first-child,.radarai h4:first-child{margin-top:0}
   .aifoot{font-size:11px;color:var(--muted);padding:4px 2px}
   #aiBtn{background:linear-gradient(90deg,#5b8cff,#a855f7);color:#fff;border:none}
+  #aiModelSel{width:100%;margin-top:6px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+    border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit}
 </style>
 </head>
 <body>
@@ -301,6 +303,8 @@
   <header style="display:flex;align-items:center"><h3 data-i18n="ai_title"></h3><button class="close" id="aiClose">×</button></header>
   <div class="body">
     <div id="aiDisabled" class="empty" style="position:static;height:auto;padding:14px;display:none"></div>
+    <div class="kwsec" id="aiModelRow"><div class="kl" data-i18n="ai_model_label"></div>
+      <select id="aiModelSel"></select></div>
     <div class="kwsec"><div class="kl" data-i18n="ai_brief_label"></div>
       <button class="run" id="aiBriefBtn" data-i18n="ai_brief_btn" style="margin-top:0"></button>
       <div id="aiBrief" class="aiout"></div></div>
@@ -348,7 +352,7 @@ const STR={
     d_digest_none:"이 키워드의 기사를 찾지 못했습니다",d_digest_fetched:"본문 {n}/{total}건 기반",
     ins_busiest:"📊 최다 분야 {cat} · {count}건",ins_rising:"🚀 급상승 {kw} ×{score}",
     ins_hub:"🔗 허브 {kw} · 연결 {deg}",ins_sentiment:"🙂 전반 감성 {label}",ins_cluster:"🧩 핵심 토픽 {kws}",
-    ai_title:"✨ AI 분석",ai_brief_label:"트렌드 브리핑",ai_brief_btn:"브리핑 생성",
+    ai_title:"✨ AI 분석",ai_model_label:"AI 모델",ai_model_default:"기본",ai_brief_label:"트렌드 브리핑",ai_brief_btn:"브리핑 생성",
     ai_ask_label:"트렌드에 질문하기",ai_ask_ph:"예: 왜 반도체가 급상승했나요?",ai_ask_btn:"질문",
     ai_disabled:"AI 비활성 — .env에 OpenRouter 키를 설정하세요.",ai_loading:"생성 중…",ai_err:"요청 실패",
     ai_evidence:"근거 기사 {n}건",ai_label_btn:"AI 토픽 라벨",
@@ -389,7 +393,7 @@ const STR={
     d_digest_none:"No articles found for this keyword",d_digest_fetched:"based on {n}/{total} full texts",
     ins_busiest:"📊 Top field {cat} · {count}",ins_rising:"🚀 Rising {kw} ×{score}",
     ins_hub:"🔗 Hub {kw} · {deg} links",ins_sentiment:"🙂 Overall sentiment {label}",ins_cluster:"🧩 Lead topic {kws}",
-    ai_title:"✨ AI analysis",ai_brief_label:"Trend briefing",ai_brief_btn:"Generate briefing",
+    ai_title:"✨ AI analysis",ai_model_label:"AI model",ai_model_default:"Default",ai_brief_label:"Trend briefing",ai_brief_btn:"Generate briefing",
     ai_ask_label:"Ask about the trends",ai_ask_ph:"e.g. Why is semiconductor rising?",ai_ask_btn:"Ask",
     ai_disabled:"AI disabled — set an OpenRouter key in .env.",ai_loading:"Generating…",ai_err:"Request failed",
     ai_evidence:"{n} source articles",ai_label_btn:"AI topic labels",
@@ -855,6 +859,7 @@ async function runKeywordDigest(kw){
   out.innerHTML=`<span class="spin"></span> ${t("d_digest_loading")}`;btn.disabled=true;
   try{
     const p=new URLSearchParams({keyword:kw,lang,hours:"48",limit:"4"});regionIds().forEach(v=>p.append("regions",v));
+    if(aiModel)p.set("model",aiModel);
     const r=await fetch(API+"/api/ai/keyword-digest?"+p,{method:"POST"});
     if(!r.ok){out.textContent=r.status===503?t("ai_disabled"):(r.status===409?t("d_digest_none"):t("ai_err"));}
     else{const d=await r.json();
@@ -882,9 +887,21 @@ async function drawSpark(kw,node){
 }
 
 //──────────── AI 드로어 ────────────
-let aiStatus=null,aiLabels=null;
+let aiStatus=null,aiLabels=null,aiModel=localStorage.getItem("mt_aimodel")||"",aiModelsLoaded=false;
 function aiParams(extra){const p=new URLSearchParams(Object.assign({lang,hours:$("hours").value},extra||{}));
-  selected("cat").forEach(v=>p.append("categories",v));regionIds().forEach(v=>p.append("regions",v));return p;}
+  selected("cat").forEach(v=>p.append("categories",v));regionIds().forEach(v=>p.append("regions",v));
+  if(aiModel)p.set("model",aiModel);return p;}
+async function loadAiModels(){
+  if(aiModelsLoaded)return;
+  try{
+    const d=await fetch(API+"/api/ai/models").then(r=>r.json());
+    const sel=$("aiModelSel");
+    sel.innerHTML=`<option value="">${t("ai_model_default")}${d.default?` (${d.default.split("/").pop()})`:""}</option>`+
+      (d.models||[]).map(m=>`<option value="${m.id}">${m.label} · ${m.id.split("/")[0]}</option>`).join("");
+    sel.value=aiModel;aiModelsLoaded=true;
+  }catch(e){}
+}
+$("aiModelSel").addEventListener("change",()=>{aiModel=$("aiModelSel").value;localStorage.setItem("mt_aimodel",aiModel);});
 // 마크다운 → HTML (헤더·굵게·기울임·코드·불릿/번호 목록) — AI 출력 비주얼화
 function mdToHtml(md){
   if(!md)return"";
@@ -911,7 +928,9 @@ async function openAI(){
   const dis=$("aiDisabled"),on=aiStatus.enabled;
   dis.style.display=on?"none":"block";if(!on)dis.textContent=t("ai_disabled");
   ["aiBriefBtn","aiAskBtn","aiAskInput"].forEach(id=>$(id).disabled=!on);
-  $("aiModel").textContent=on?`model: ${aiStatus.model}`:"";
+  $("aiModelRow").style.display=on?"":"none";
+  $("aiModel").textContent=on?`model: ${aiModel||aiStatus.model}`:"";
+  if(on)loadAiModels();
 }
 async function genBrief(){
   const out=$("aiBrief");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;$("aiBriefBtn").disabled=true;
@@ -1145,6 +1164,7 @@ async function loadBreakouts(){
 async function histAiReading(){
   if(!histKw)return;const out=$("histAiOut");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
   try{const p=new URLSearchParams({q:`'${histKw}' 키워드의 장기 추이와 의미를 분석해줘`,lang,hours:"24"});regionIds().forEach(v=>p.append("regions",v));
+    if(aiModel)p.set("model",aiModel);
     const r=await fetch(API+"/api/ai/ask?"+p,{method:"POST"});
     out.innerHTML='<button class="aiclose" title="close">×</button>'+(r.ok?fmtAI((await r.json()).answer):(r.status===503?t("ai_disabled"):t("ai_err")));
   }catch(e){out.textContent=t("ai_err");}
