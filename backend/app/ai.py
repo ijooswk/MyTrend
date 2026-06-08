@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import time
-from collections import Counter
+from collections import Counter, defaultdict
 
 import httpx
 
@@ -128,6 +128,23 @@ def build_qa_messages(question: str, articles: list, lang: str, *, limit: int = 
               f"If the headlines do not contain enough information, say so honestly. "
               f"Answer in {lname}, concise (2-4 sentences). Do not invent facts or sources.")
     user = f"Headlines:\n" + "\n".join(heads) + f"\n\nQuestion: {question}"
+    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+
+
+def build_radar_messages(radar: list[dict], lang: str) -> list[dict]:
+    lname = _lang_name(lang)
+    groups: dict[str, list] = defaultdict(list)
+    for r in sorted(radar, key=lambda x: -x["volume"]):
+        groups[r["quadrant"]].append(f"{r['id']}(vol {r['volume']}, mom {r['momentum']:+})")
+    order = ["hot", "emerging", "established", "fading"]
+    lines = [f"{q.upper()}: " + ", ".join(groups[q][:10]) for q in order if groups.get(q)]
+    system = (f"You are a strategic news-trend analyst reading a momentum×volume radar. "
+              f"Quadrants: HOT(high volume & rising), EMERGING(low volume & rising), "
+              f"ESTABLISHED(high volume & stable/declining), FADING(low volume & declining). "
+              f"Write a concise strategic reading in {lname}: 4-6 short bullets (•) — what is breaking out, "
+              f"what to watch early (emerging), what is cooling, plus one actionable takeaway. "
+              f"Factual, grounded in the data, no fabrication.")
+    user = "Radar quadrants:\n" + "\n".join(lines)
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 

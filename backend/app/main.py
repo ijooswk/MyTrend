@@ -288,6 +288,33 @@ async def api_ai_briefing(
     return {"text": text, "cached": False}
 
 
+@app.post("/api/ai/radar")
+async def api_ai_radar(
+    lang: str = Query("ko", pattern="^(ko|en)$"),
+    categories: list[str] | None = Query(None),
+    regions: list[str] | None = Query(None),
+    sources: list[str] | None = Query(None),
+    hours: int = Query(24, ge=1, le=168),
+):
+    """트렌드 레이더(사분면)에 대한 AI 전략 해설."""
+    if not ai.ai_enabled():
+        return JSONResponse({"error": "AI disabled (no OpenRouter key)"}, status_code=503)
+    data = await _trend_for_ai(categories, regions, sources, hours)
+    radar = data.get("radar", [])
+    if not radar:
+        return JSONResponse({"error": "no radar data"}, status_code=409)
+    ck = ("radar", lang, tuple((r["id"], r["quadrant"]) for r in radar[:30]))
+    cached = ai.cache_get(*ck)
+    if cached:
+        return {"text": cached, "cached": True}
+    try:
+        text = await ai.chat(ai.build_radar_messages(radar, lang), temperature=0.4)
+    except ai.AIUnavailable as e:
+        return JSONResponse({"error": str(e)}, status_code=502)
+    ai.cache_put(text, *ck)
+    return {"text": text, "cached": False}
+
+
 @app.post("/api/ai/label-clusters")
 async def api_ai_labels(
     lang: str = Query("ko", pattern="^(ko|en)$"),

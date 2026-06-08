@@ -29,6 +29,15 @@ def test_prompt_builders_contain_data():
     assert "JSON" in lab[0]["content"] and "엔비디아" in lab[1]["content"]
 
 
+def test_build_radar_messages():
+    radar = [{"id": "AI", "volume": 5, "momentum": 0.7, "quadrant": "hot"},
+             {"id": "에이전트", "volume": 2, "momentum": 0.6, "quadrant": "emerging"},
+             {"id": "반도체", "volume": 6, "momentum": -0.1, "quadrant": "established"}]
+    msgs = ai.build_radar_messages(radar, "ko")
+    assert "Korean" in msgs[0]["content"] and "HOT" in msgs[1]["content"]
+    assert "AI" in msgs[1]["content"]
+
+
 def test_parse_labels_extracts_json():
     txt = 'Sure! [{"id":0,"label":"AI 반도체 경쟁"},{"id":1,"label":"금리"}] done'
     labels = ai.parse_labels(txt)
