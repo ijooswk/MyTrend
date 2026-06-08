@@ -139,6 +139,43 @@ def detect_breakouts(db, *, asof_day: str | None = None, recent_days: int = 7,
     return out[:top]
 
 
+# ── 급상승(롤업 시계열 기반) ──
+def compute_rising_rollup(db, *, recent_days: int = 3, baseline_days: int = 21,
+                          top: int = 15, min_recent: int = 2, regions=None) -> list[dict]:
+    """일별 롤업의 다일(多日) 베이스라인 대비 성장으로 급상승 키워드를 산출.
+
+    단일 윈도를 반으로 나누는 방식과 달리 '시간 축'(여러 날)을 기준으로 하므로,
+    데이터가 쌓일수록 의미가 또렷해진다. (모두 0에서 시작하는 문제 해소)
+    """
+    asof = today_utc()
+    since = day_add(asof, -(baseline_days - 1))
+    rows = db.daily_all(since_day=since, until_day=asof, regions=regions)
+    series: dict[str, dict] = defaultdict(dict)
+    cat: dict[str, str] = {}
+    for day, kw, c, s, ct in rows:
+        series[kw][day] = c
+        cat[kw] = ct
+    recent_start = day_add(asof, -(recent_days - 1))
+    base_days = daterange(since, day_add(recent_start, -1))
+    rec_days = daterange(recent_start, asof)
+    out = []
+    for kw, dc in series.items():
+        recent = sum(dc.get(d, 0) for d in rec_days)
+        if recent < min_recent:
+            continue
+        base = [dc.get(d, 0) for d in base_days]
+        base_avg = (sum(base) / len(base)) if base else 0.0
+        rec_avg = recent / len(rec_days)
+        growth = rec_avg - base_avg
+        if growth <= 0:
+            continue
+        out.append({"id": kw, "recent": recent, "prev": round(base_avg, 1),
+                    "growth": round(growth, 2), "score": round(growth / (base_avg + 1), 2),
+                    "cat": cat.get(kw), "isNew": base_avg == 0})
+    out.sort(key=lambda x: (x["score"], x["growth"]), reverse=True)
+    return out[:top]
+
+
 # ── 계절성 탐지(자기상관) ──
 _SEASON_LAGS = [("weekly", 7), ("monthly", 30), ("yearly", 365)]
 

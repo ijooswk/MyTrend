@@ -46,6 +46,21 @@ def test_detect_breakouts():
     assert "flat" not in bo                     # 변화 없는 키워드는 제외
 
 
+def test_compute_rising_rollup_time_based():
+    db = DB(":memory:")
+    asof = H.today_utc()
+    # 'rising': 베이스라인 낮다가 최근 급증 / 'steady': 계속 일정
+    for i in range(21):
+        d = H.day_add(asof, -i)
+        rising_cnt = 12 if i < 3 else 1
+        db.replace_daily(d, [(d, "rising", "KR", rising_cnt, 0.0, "T"),
+                             (d, "steady", "KR", 5, 0.0, "T")])
+    out = {x["id"]: x for x in H.compute_rising_rollup(db, recent_days=3, baseline_days=21)}
+    assert "rising" in out and out["rising"]["growth"] > 0     # 시간 기준 상승 포착
+    assert out["rising"]["prev"] < out["rising"]["recent"]
+    assert "steady" not in out                                 # 변화 없으면 제외
+
+
 def test_detect_seasonality_weekly():
     db = DB(":memory:")
     base = "2025-01-06"            # 월요일

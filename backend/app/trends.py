@@ -59,7 +59,15 @@ async def get_trends(db: DB, *, categories: list[str] | None = None,
     payload = build_trends(arts, min_freq=min_freq, max_kw=max_kw,
                            assoc_threshold=assoc_threshold)
     mid = now - (hours / 2) * 3600
-    payload["rising"] = compute_rising(arts, mid)
+    # 급상승: 롤업(다일 시계열) 베이스라인 대비 성장 우선, 데이터 없으면 윈도 절반비교로 폴백
+    from . import history as H
+    rising = []
+    try:
+        if db.daily_day_bounds()[2]:                       # 롤업 행이 있으면
+            rising = H.compute_rising_rollup(db, regions=regions)
+    except Exception:
+        rising = []
+    payload["rising"] = rising or compute_rising(arts, mid)
     payload["radar"] = compute_radar(arts, payload["kws"], payload["links"], mid)
     payload["insights"] = make_insights(payload)
     payload.update({
