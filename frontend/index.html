@@ -1055,17 +1055,29 @@ function drawRadar(data){
   // 축 라벨
   g.append("text").attr("x",(m.l+W-m.r)/2).attr("y",H-8).attr("text-anchor","middle").attr("fill",mut).attr("font-size",11).text(t("radar_x"));
   g.append("text").attr("transform",`translate(15,${(m.t+H-m.b)/2}) rotate(-90)`).attr("text-anchor","middle").attr("fill",mut).attr("font-size",11).text(t("radar_y"));
-  // 버블
-  const md=d3.max(R,d=>d.degree)||1,rOf=d=>6+12*Math.sqrt((d.degree||0)/md);
-  const node=g.selectAll("g.rn").data(R).join("g").attr("class","rn").style("cursor","pointer")
-    .attr("transform",d=>`translate(${x(d.momentum)},${y(d.volume)})`);
+  // 버블 — force 충돌로 겹침 분리(원래 데이터 위치 근처를 유지하며 흩뜨림)
+  const md=d3.max(R,d=>d.degree)||1,rOf=d=>5+11*Math.sqrt((d.degree||0)/md);
+  const nodes=R.map(d=>{const n={...d};n.tx=x(d.momentum);n.ty=y(d.volume);n.x=n.tx;n.y=n.ty;return n;});
+  d3.forceSimulation(nodes)
+    .force("x",d3.forceX(d=>d.tx).strength(.75))
+    .force("y",d3.forceY(d=>d.ty).strength(.75))
+    .force("collide",d3.forceCollide(d=>rOf(d)+2.6).iterations(2))
+    .stop().tick(230);
+  nodes.forEach(n=>{n.x=Math.max(m.l+rOf(n),Math.min(W-m.r-rOf(n),n.x));
+                    n.y=Math.max(m.t+rOf(n),Math.min(H-m.b-rOf(n),n.y));});
+  // 라벨은 상위(볼륨·연결 기준) 위주로만 표시해 글자 겹침 최소화
+  const labelSet=new Set(nodes.slice().sort((a,b)=>(b.volume+b.degree)-(a.volume+a.degree)).slice(0,28).map(n=>n.id));
+  const node=g.selectAll("g.rn").data(nodes).join("g").attr("class","rn").style("cursor","pointer")
+    .attr("transform",d=>`translate(${d.x},${d.y})`);
   node.append("circle").attr("r",rOf).attr("fill",d=>nodeColor(d)).attr("fill-opacity",.82).attr("stroke",strk).attr("filter","url(#glow)");
-  ensureDefs(svg);
   node.append("text").attr("dy",d=>-rOf(d)-3).attr("text-anchor","middle").attr("fill",ink).attr("font-size",11).attr("font-weight",700)
     .attr("stroke",strk).attr("stroke-width",2.5).attr("paint-order","stroke")
-    .style("display",d=>d.volume>=vmed||Math.abs(d.momentum)>0.4?null:"none").text(d=>d.id);
-  node.on("mouseover",(e,d)=>showTip(`<b>${d.id}</b> · ${t("rq_"+d.quadrant)}<br>${lang==="ko"?"볼륨":"vol"} ${d.volume} · ${lang==="ko"?"모멘텀":"mom"} ${d.momentum>0?"+":""}${d.momentum} · ${lang==="ko"?"연결":"links"} ${d.degree}`,e))
-    .on("mousemove",moveTip).on("mouseout",hideTip).on("click",(e,d)=>openKeyword(d.id));
+    .style("display",d=>labelSet.has(d.id)?null:"none").text(d=>d.id);
+  node.on("mouseover",function(e,d){d3.select(this).raise().select("text").style("display",null);
+      showTip(`<b>${d.id}</b> · ${t("rq_"+d.quadrant)}<br>${lang==="ko"?"볼륨":"vol"} ${d.volume} · ${lang==="ko"?"모멘텀":"mom"} ${d.momentum>0?"+":""}${d.momentum} · ${lang==="ko"?"연결":"links"} ${d.degree}`,e);})
+    .on("mousemove",moveTip)
+    .on("mouseout",function(e,d){if(!labelSet.has(d.id))d3.select(this).select("text").style("display","none");hideTip();})
+    .on("click",(e,d)=>openKeyword(d.id));
 }
 async function radarAiReading(){
   const out=$("radarAiOut");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
