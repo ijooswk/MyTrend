@@ -1,101 +1,121 @@
 #!/usr/bin/env bash
-# ──────────────────────────────────────────────────────────────
-# MyTrend 원격 배포 스크립트
-#   로컬 소스를 원격 서버로 전송 → 원격 Docker 에서 빌드/기동.
-#   사용법: ./deploy.sh [up|down|logs|status|restart]   (기본: up)
-#   설정/자격증명: deploy.env  (deploy.env.example 참고)
-# ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────────
+# MyTrend — 원격 서버 배포 스크립트  (quantum-invest 배포 패턴 참고)
+#
+#   1) 로컬 소스를 rsync 로 서버에 동기화 (.git/.venv/__pycache__/*.db 등 제외)
+#   2) 서버에서 docker compose 로 빌드 & 기동 (단일 컨테이너: API + 정적 프론트)
+#   3) /api/health 헬스체크
+#
+# 사용법:
+#   ./deploy.sh                 # 동기화 + 빌드 + 기동
+#   ./deploy.sh --no-build      # 동기화 후 재기동만 (이미지 재빌드 생략)
+#   ./deploy.sh --logs          # 배포 후 로그 따라보기
+#
+# 설정/자격증명은 같은 폴더의 deploy.env(gitignore) 에서 읽습니다.
+# (권장: `ssh-copy-id sehun@100.98.178.217` 로 키 등록 → SERVER_PASSWORD 불필요)
+# ──────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "${SCRIPT_DIR}"
 
-# ── 설정 로드 ──
-if [ -f deploy.env ]; then
-  set -a; . ./deploy.env; set +a
+# ── 설정 로드 (deploy.env → 환경변수 → 기본값) ─────────────────────────────────
+[ -f deploy.env ] && { set -a; . ./deploy.env; set +a; }
+SERVER_IP="${SERVER_IP:-100.98.178.217}"
+SERVER_USER="${SERVER_USER:-sehun}"
+SERVER_PASSWORD="${SERVER_PASSWORD:-}"
+SSH_PORT="${SSH_PORT:-22}"
+REMOTE_DIR="${REMOTE_DIR:-/home/${SERVER_USER}/mytrend}"
+COMPOSE_FILE="docker-compose.prod.yml"
+
+# ── 옵션 ───────────────────────────────────────────────────────────────────────
+DO_BUILD=1; FOLLOW_LOGS=0
+for arg in "$@"; do
+  case "$arg" in
+    --no-build) DO_BUILD=0 ;;
+    --logs)     FOLLOW_LOGS=1 ;;
+    *) echo "알 수 없는 옵션: $arg"; exit 1 ;;
+  esac
+done
+
+# ── sshpass 래퍼 (SSH 키가 있으면 자동으로 비밀번호 없이 동작) ──────────────────
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p "${SSH_PORT}")
+if [ -n "${SERVER_PASSWORD}" ] && command -v sshpass >/dev/null 2>&1; then
+  SSHPASS_PREFIX=(sshpass -p "${SERVER_PASSWORD}")
 else
-  echo "❌ deploy.env 가 없습니다. 'cp deploy.env.example deploy.env' 후 값을 채우세요."; exit 1
+  SSHPASS_PREFIX=()
+  [ -n "${SERVER_PASSWORD}" ] && echo "ⓘ sshpass 가 없어 SSH 키 인증을 시도합니다. (brew install hudochenkov/sshpass/sshpass)"
 fi
-: "${REMOTE_HOST:?REMOTE_HOST 미설정}"
-: "${REMOTE_USER:?REMOTE_USER 미설정}"
-REMOTE_PORT="${REMOTE_PORT:-22}"
-REMOTE_DIR="${REMOTE_DIR:-~/mytrend}"
-MYTREND_PORT="${MYTREND_PORT:-8000}"
-ACTION="${1:-up}"
+run_ssh() { "${SSHPASS_PREFIX[@]}" ssh "${SSH_OPTS[@]}" "${SERVER_USER}@${SERVER_IP}" "$@"; }
 
-# ── SSH/SCP 래퍼 (키 우선, 없으면 sshpass 비밀번호) ──
-SSH_OPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 -p ${REMOTE_PORT}"
-RSYNC_SSH="ssh -o StrictHostKeyChecking=accept-new -p ${REMOTE_PORT}"
-SSHPASS_PREFIX=()
-if [ -n "${REMOTE_PASS:-}" ]; then
-  if ! command -v sshpass >/dev/null 2>&1; then
-    echo "❌ REMOTE_PASS 가 설정됐지만 sshpass 가 없습니다."
-    echo "   설치: macOS 'brew install hudochenkov/sshpass/sshpass' / Ubuntu 'sudo apt install sshpass'"
-    echo "   또는 SSH 키를 설정하고 deploy.env 의 REMOTE_PASS 를 비우세요."
-    exit 1
-  fi
-  SSHPASS_PREFIX=(sshpass -p "${REMOTE_PASS}")
-  RSYNC_SSH="sshpass -p ${REMOTE_PASS} ssh -o StrictHostKeyChecking=accept-new -p ${REMOTE_PORT}"
+echo "==> 대상 서버: ${SERVER_USER}@${SERVER_IP}:${REMOTE_DIR}"
+
+# ── 0. 사전 점검: 접속 & Docker ─────────────────────────────────────────────────
+echo "==> [0/4] SSH 접속 및 Docker 확인"
+run_ssh "mkdir -p '${REMOTE_DIR}' && echo OK" >/dev/null
+if ! run_ssh "command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1"; then
+  echo "‼  서버에 Docker / docker compose 가 없습니다. 서버에서 먼저 실행하세요:"
+  echo "     curl -fsSL https://get.docker.com | sh"
+  echo "     sudo usermod -aG docker ${SERVER_USER}   # 재로그인 필요"
+  exit 1
 fi
 
-rexec() { "${SSHPASS_PREFIX[@]}" ssh ${SSH_OPTS} "${REMOTE_USER}@${REMOTE_HOST}" "$@"; }
+# ── 1. 소스 동기화 (rsync) ──────────────────────────────────────────────────────
+echo "==> [1/4] 소스 동기화 (rsync)"
+RSYNC_RSH="${SSHPASS_PREFIX[*]:+sshpass -p ${SERVER_PASSWORD} }ssh -o StrictHostKeyChecking=accept-new -p ${SSH_PORT}"
+# 주의: '/.env' 처럼 슬래시로 앵커해야 루트 .env 만 제외되고 backend/.env(API 키)는 전송됨.
+rsync -az --delete \
+  -e "${RSYNC_RSH}" \
+  --exclude '.git' \
+  --exclude 'backend/.venv' \
+  --exclude '__pycache__' \
+  --exclude '*.pyc' \
+  --exclude '.pytest_cache' \
+  --exclude '*.db' \
+  --exclude '/data' \
+  --exclude '/.env' \
+  --exclude '/deploy.env' \
+  --exclude '*.log' \
+  --exclude '.DS_Store' \
+  --exclude 'outputs' \
+  "${SCRIPT_DIR}/" "${SERVER_USER}@${SERVER_IP}:${REMOTE_DIR}/"
 
-# ── 원격 docker compose 명령 감지 ──
-remote_dc() {
-  rexec 'if docker compose version >/dev/null 2>&1; then echo "docker compose"; \
-         elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"; \
-         else echo "NONE"; fi'
-}
+# ── 2. 환경변수 파일 준비 ───────────────────────────────────────────────────────
+echo "==> [2/4] 환경변수(.env) 확인"
+run_ssh "cd '${REMOTE_DIR}' && \
+  if [ ! -f .env ]; then cp .env.prod.example .env && echo '⚠  .env 를 .env.prod.example 에서 생성했습니다(기본 포트 19090).'; \
+  else echo '.env 존재 — 그대로 사용'; fi && \
+  if [ ! -f backend/.env ]; then echo '‼  backend/.env (API 키) 가 서버에 없습니다 — EODHD/OpenRouter/Tavily 키를 설정하세요.'; fi"
 
-check_prereqs() {
-  echo "▶ 원격 환경 점검 (${REMOTE_USER}@${REMOTE_HOST})…"
-  if ! rexec 'command -v docker >/dev/null 2>&1'; then
-    echo "❌ 원격에 docker 가 없습니다. 먼저 Docker 를 설치하세요."; exit 1
-  fi
-  DC="$(remote_dc)"
-  if [ "$DC" = "NONE" ]; then
-    echo "❌ 원격에 docker compose 플러그인이 없습니다 (docker-compose-plugin 설치 필요)."; exit 1
-  fi
-  echo "  docker OK · compose: ${DC}"
-}
+# ── 3. 빌드 & 기동 ──────────────────────────────────────────────────────────────
+echo "==> [3/4] docker compose 기동"
+BUILD_FLAG=""; [ "${DO_BUILD}" -eq 1 ] && BUILD_FLAG="--build"
+run_ssh "cd '${REMOTE_DIR}' && docker compose -f ${COMPOSE_FILE} up -d ${BUILD_FLAG}"
 
-sync_files() {
-  echo "▶ 소스 전송 → ${REMOTE_DIR}"
-  rexec "mkdir -p ${REMOTE_DIR}"
-  if command -v rsync >/dev/null 2>&1; then
-    rsync -az --delete \
-      --exclude '.git' --exclude '__pycache__' --exclude '*.pyc' \
-      --exclude 'backend/.venv' --exclude '*.db' --exclude 'data' \
-      --exclude 'deploy.env' --exclude '*.log' \
-      -e "${RSYNC_SSH}" ./ "${REMOTE_USER}@${REMOTE_HOST}:${REMOTE_DIR}/"
-  else
-    echo "  (rsync 없음 → tar+scp 폴백)"
-    tar czf - --exclude='.git' --exclude='__pycache__' --exclude='*.pyc' \
-      --exclude='backend/.venv' --exclude='*.db' --exclude='data' \
-      --exclude='deploy.env' . | rexec "mkdir -p ${REMOTE_DIR} && tar xzf - -C ${REMOTE_DIR}"
-  fi
-  # 포트 설정 주입(.env 없으면 생성)
-  rexec "cd ${REMOTE_DIR} && [ -f .env ] || cp .env.example .env; \
-         sed -i 's/^MYTREND_PORT=.*/MYTREND_PORT=${MYTREND_PORT}/' .env || true"
-}
+# ── 4. 헬스체크 ─────────────────────────────────────────────────────────────────
+echo "==> [4/4] 헬스체크 (최대 60초 대기)"
+PORT="$(run_ssh "cd '${REMOTE_DIR}' && (grep -E '^MYTREND_PORT=' .env 2>/dev/null | cut -d= -f2)" || true)"
+PORT="${PORT:-19090}"
+HEALTH_OK=0
+for i in $(seq 1 12); do
+  if run_ssh "curl -fsS http://localhost:${PORT}/api/health >/dev/null 2>&1"; then HEALTH_OK=1; break; fi
+  sleep 5
+done
 
-remote_compose() {
-  local DC; DC="$(remote_dc)"
-  rexec "cd ${REMOTE_DIR} && ${DC} $*"
-}
+echo ""
+if [ "${HEALTH_OK}" -eq 1 ]; then
+  echo "✅ 배포 완료 — 정상 동작"
+else
+  echo "⚠  헬스체크 실패. 로그를 확인하세요:"
+  echo "    ssh ${SERVER_USER}@${SERVER_IP} 'cd ${REMOTE_DIR} && docker compose -f ${COMPOSE_FILE} logs --tail=80'"
+fi
+run_ssh "cd '${REMOTE_DIR}' && docker compose -f ${COMPOSE_FILE} ps" || true
 
-case "$ACTION" in
-  up)
-    check_prereqs
-    sync_files
-    echo "▶ 원격 빌드 및 기동…"
-    remote_compose "up -d --build"
-    echo "▶ 상태:"
-    remote_compose "ps" || true
-    echo "✅ 배포 완료 → http://${REMOTE_HOST}:${MYTREND_PORT}"
-    ;;
-  down)    check_prereqs; remote_compose "down"; echo "✅ 원격 중지" ;;
-  restart) check_prereqs; remote_compose "restart"; echo "✅ 재시작" ;;
-  status)  check_prereqs; remote_compose "ps"
-           rexec "curl -fsS http://localhost:${MYTREND_PORT}/api/health" && echo " ← health OK" || true ;;
-  logs)    check_prereqs; remote_compose "logs -f --tail=100" ;;
-  *) echo "사용법: ./deploy.sh [up|down|restart|status|logs]"; exit 1 ;;
-esac
+echo ""
+echo "   앱(프론트+API): http://${SERVER_IP}:${PORT}"
+echo "   API 문서:        http://${SERVER_IP}:${PORT}/docs"
+echo "   최초 1회 롤업:   curl -X POST http://${SERVER_IP}:${PORT}/api/rollup"
+
+if [ "${FOLLOW_LOGS}" -eq 1 ]; then
+  echo "==> 로그 follow (Ctrl-C 로 종료)"
+  run_ssh "cd '${REMOTE_DIR}' && docker compose -f ${COMPOSE_FILE} logs -f --tail=50"
+fi
