@@ -112,7 +112,7 @@ def eodhd_query_mode(q: str) -> str:
 async def _eodhd(client: httpx.AsyncClient, query: str, hours: int,
                  limit: int) -> list[Article]:
     """EODHD 금융뉴스 검색. 질의가 티커형이면 s=, 아니면 t=태그 로 조회."""
-    key = get_settings().eodhd_api_key
+    key = get_settings().eodhd_key
     if not key:
         return []
     q = query.strip()

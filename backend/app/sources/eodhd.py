@@ -29,10 +29,10 @@ class EODHDSource(Source):
     ENDPOINT = "https://eodhd.com/api/news"
 
     def enabled(self) -> bool:
-        return bool(get_settings().eodhd_api_key)
+        return bool(get_settings().eodhd_key)
 
     async def fetch(self, client, *, categories, regions, since, per_feed) -> list[Article]:
-        key = get_settings().eodhd_api_key
+        key = get_settings().eodhd_key
         if not key:
             return []
         # EODHD는 영어권/글로벌 금융뉴스. region 에 US 가 없으면 첫 region 사용.

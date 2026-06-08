@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,10 +11,15 @@ class Settings(BaseSettings):
 
     # API 키 (없으면 해당 소스 비활성)
     tavily_api_key: str = ""
-    # EODHD 는 EODHD_API_KEY 또는 EODHD_API_TOKEN 둘 다 허용
-    eodhd_api_key: str = Field(
-        "", validation_alias=AliasChoices("EODHD_API_KEY", "EODHD_API_TOKEN"))
+    # EODHD 는 EODHD_API_KEY 또는 EODHD_API_TOKEN 둘 다 허용.
+    # 두 변수를 따로 받아 '비어있지 않은' 쪽을 사용한다(Docker 가 빈 KEY 를 주입해도 안전).
+    eodhd_api_key: str = ""      # EODHD_API_KEY
+    eodhd_api_token: str = ""    # EODHD_API_TOKEN
     newsapi_key: str = ""
+
+    @property
+    def eodhd_key(self) -> str:
+        return (self.eodhd_api_key or self.eodhd_api_token or "").strip()
     # OpenRouter (LLM 게이트웨이) — AI 브리핑·라벨링·Q&A
     openrouter_api_key: str = ""
     mytrend_ai_model: str = "openai/gpt-4o-mini"
