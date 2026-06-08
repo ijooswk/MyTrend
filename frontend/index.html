@@ -88,6 +88,17 @@
     width:34px;height:30px;cursor:pointer;font-size:15px}
   .pane{position:absolute;inset:0;display:none}.pane.active{display:block}
   #netSvg,#bubbleSvg,#cloudSvg,#treeSvg,#heatSvg,#radarSvg{width:100%;height:100%;display:block}
+  /* 히스토리 뷰 */
+  #histWrap{position:absolute;inset:0;display:flex;flex-direction:column}
+  .histbar{display:flex;gap:8px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .histbar input{flex:1;min-width:140px;background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px;color:var(--txt);font-size:13px}
+  .histbar button#histBtn{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:7px 14px;font-weight:700;cursor:pointer}
+  .histbar select{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px;color:var(--txt);font-size:12px}
+  .histbody{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:16px}
+  #histLine{width:100%;height:200px;flex-shrink:0}
+  #histInfo{display:flex;gap:10px;flex-wrap:wrap}
+  .hchip{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:12px}
+  .hchip b{color:var(--accent)}
   .radarai{position:absolute;right:14px;bottom:14px;max-width:320px;max-height:42%;overflow-y:auto;
     background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;font-size:12px;
     line-height:1.6;color:var(--txt);box-shadow:0 4px 16px rgba(0,0,0,.2)}.radarai:empty{display:none}
@@ -218,6 +229,7 @@
       <div class="tab" data-v="tree" data-i18n="tab_tree"></div>
       <div class="tab" data-v="heat" data-i18n="tab_heat"></div>
       <div class="tab" data-v="radar" data-i18n="tab_radar"></div>
+      <div class="tab" data-v="history" data-i18n="tab_history"></div>
       <div class="tab" data-v="rising" data-i18n="tab_rising"></div>
     </div>
     <div class="legend" id="legend"></div>
@@ -243,6 +255,27 @@
         <div class="netctrl"><button class="ailabelbtn" id="radarAiBtn" data-i18n="ai_radar_btn"></button></div>
         <svg id="radarSvg"></svg>
         <div id="radarAiOut" class="radarai"></div></div>
+      <div class="pane" data-v="history"><div id="histWrap">
+        <div class="histbar">
+          <input id="histInput" data-i18n-ph="hist_ph">
+          <button id="histBtn" data-i18n="hist_btn"></button>
+          <span class="cmode" id="histInterval">
+            <button data-iv="day" class="on" data-i18n="iv_day"></button>
+            <button data-iv="week" data-i18n="iv_week"></button>
+            <button data-iv="month" data-i18n="iv_month"></button></span>
+          <select id="histDays">
+            <option value="90">90d</option><option value="180" selected>180d</option>
+            <option value="365">1y</option><option value="730">2y</option></select>
+          <button class="ailabelbtn" id="histAiBtn" data-i18n="ai_hist_btn"></button>
+        </div>
+        <div class="histbody">
+          <svg id="histLine"></svg>
+          <div id="histCal"></div>
+          <div id="histInfo"></div>
+        </div>
+        <div id="histAiOut" class="radarai"></div>
+        <div class="empty" id="histEmpty" style="position:static;height:100%"><b data-i18n="hist_title"></b><span data-i18n="hist_desc"></span></div>
+      </div></div>
       <div class="pane" data-v="rising"><div id="risingWrap"></div></div>
     </div>
     <div class="status" id="status"></div>
@@ -287,6 +320,10 @@ const STR={
     tab_net:"🕸 키워드 네트워크",tab_cloud:"☁️ 워드클라우드",tab_bubble:"🫧 분야별 버블",tab_tree:"🟩 트리맵",tab_heat:"📊 상관 히트맵",tab_radar:"🛰 트렌드 레이더",tab_rising:"📈 급상승",
     rq_hot:"주목",rq_emerging:"부상",rq_established:"정착",rq_fading:"쇠퇴",
     radar_x:"모멘텀(추세) →",radar_y:"볼륨(빈도) ↑",ai_radar_btn:"✨ 레이더 AI 해설",
+    tab_history:"📅 히스토리",hist_ph:"키워드 입력(장기 추이)…",hist_btn:"조회",
+    iv_day:"일",iv_week:"주",iv_month:"월",ai_hist_btn:"✨ AI 맥락 해설",
+    hist_title:"장기 추이를 볼 키워드를 입력하세요",hist_desc:"누적된 일별 데이터로 추세·계절성·돌발을 분석합니다.",
+    hist_total:"총 등장",hist_peak:"정점",hist_seasonal:"계절성",hist_breakout:"돌발",hist_none:"데이터 없음",
     top_kw:"상위 키워드",empty_title:"아직 데이터가 없습니다",
     empty_desc:"설정을 고르고 ‘트렌드 맵 생성’을 누르세요.",
     btn_merge:"이 키워드를 트렌드 맵에 추가",btn_export:"⬇ CSV 내보내기",
@@ -320,6 +357,10 @@ const STR={
     tab_net:"🕸 Keyword network",tab_cloud:"☁️ Word cloud",tab_bubble:"🫧 Category bubbles",tab_tree:"🟩 Treemap",tab_heat:"📊 Correlation",tab_radar:"🛰 Trend radar",tab_rising:"📈 Rising",
     rq_hot:"Hot",rq_emerging:"Emerging",rq_established:"Established",rq_fading:"Fading",
     radar_x:"Momentum →",radar_y:"Volume ↑",ai_radar_btn:"✨ AI radar reading",
+    tab_history:"📅 History",hist_ph:"Enter a keyword (long-term)…",hist_btn:"Load",
+    iv_day:"Day",iv_week:"Week",iv_month:"Month",ai_hist_btn:"✨ AI context",
+    hist_title:"Enter a keyword to see its long-term history",hist_desc:"Analyze trend, seasonality and breakouts from accumulated daily data.",
+    hist_total:"Total",hist_peak:"Peak",hist_seasonal:"Seasonality",hist_breakout:"Breakout",hist_none:"No data",
     top_kw:"Top keywords",empty_title:"No data yet",
     empty_desc:"Pick options and press ‘Generate trend map’.",
     btn_merge:"Add this keyword to the trend map",btn_export:"⬇ Export CSV",
@@ -561,7 +602,8 @@ async function mergeSearch(){
 function redraw(){buildClusterColors(lastData);const v=document.querySelector(".tab.active").dataset.v;
   if(v==="net")drawNetwork(lastData);if(v==="cloud")drawCloud(lastData);
   if(v==="bubble")drawBubble(lastData);if(v==="tree")drawTreemap(lastData);
-  if(v==="heat")drawHeatmap();if(v==="radar")drawRadar(lastData);if(v==="rising")drawRising(lastData);}
+  if(v==="heat")drawHeatmap();if(v==="radar")drawRadar(lastData);
+  if(v==="history")drawHistory();if(v==="rising")drawRising(lastData);}
 const sentArrow=s=>s>0.05?'<span style="color:var(--ok)">▲</span>':s<-0.05?'<span style="color:var(--err)">▼</span>':'<span style="color:var(--muted)">–</span>';
 const sentWord=s=>s>0.05?t("sent_pos"):s<-0.05?t("sent_neg"):t("sent_neu");
 
@@ -923,6 +965,93 @@ async function radarAiReading(){
 }
 $("radarAiBtn").addEventListener("click",radarAiReading);
 
+//──────────── 히스토리(장기 분석) ────────────
+let histDaily=null,histKw="",histIv="day";
+function bucketHist(days,iv){
+  if(iv==="day")return days.map(p=>({period:p.period,count:p.count,sentiment:p.sentiment}));
+  const agg={};
+  days.forEach(p=>{let key=iv==="month"?p.period.slice(0,7):(()=>{const d=new Date(p.period);const dow=(d.getUTCDay()+6)%7;d.setUTCDate(d.getUTCDate()-dow);return d.toISOString().slice(0,10);})();
+    if(!agg[key])agg[key]=[0,0];agg[key][0]+=p.count;agg[key][1]+=p.count*p.sentiment;});
+  return Object.keys(agg).sort().map(k=>({period:k,count:agg[k][0],sentiment:agg[k][0]?+(agg[k][1]/agg[k][0]).toFixed(3):0}));
+}
+async function loadHistory(kw){
+  kw=(kw||"").trim();if(!kw)return;histKw=kw;
+  $("histEmpty").style.display="none";$("histInfo").innerHTML=`<span class="spin"></span>`;
+  const p=new URLSearchParams({keyword:kw,days:$("histDays").value,interval:"day"});regionIds().forEach(v=>p.append("regions",v));
+  try{
+    const h=await fetch(API+"/api/history?"+p).then(r=>r.json());
+    histDaily=h.points||[];
+    drawHistLine();drawCalendar();
+    // 계절성 + 정보
+    const sp=new URLSearchParams({keyword:kw,days:Math.max(400,+$("histDays").value)});regionIds().forEach(v=>sp.append("regions",v));
+    const se=await fetch(API+"/api/seasonality?"+sp).then(r=>r.json()).catch(()=>({cycles:[]}));
+    const total=histDaily.reduce((a,b)=>a+b.count,0);
+    const peak=histDaily.reduce((m,b)=>b.count>m.count?b:m,{count:0,period:"-"});
+    const seas=(se.cycles||[]).filter(c=>c.seasonal).map(c=>({weekly:"주간",monthly:"월간",yearly:"연간"}[c.cycle]||c.cycle));
+    $("histInfo").innerHTML=
+      `<span class="hchip">${t("hist_total")} <b>${total}</b></span>`+
+      `<span class="hchip">${t("hist_peak")} <b>${peak.period}</b> (${peak.count})</span>`+
+      `<span class="hchip">${t("hist_seasonal")} <b>${seas.length?seas.join("·"):"—"}</b></span>`;
+  }catch(e){$("histInfo").innerHTML=`<span class="hchip">${t("ai_err")}</span>`;}
+}
+function drawHistLine(){
+  const svg=d3.select("#histLine"),el=$("histLine"),W=el.clientWidth,H=el.clientHeight;
+  svg.selectAll("*").remove();ensureDefs(svg);
+  const pts=bucketHist(histDaily||[],histIv);
+  if(!pts.length){svg.append("text").attr("x",W/2).attr("y",H/2).attr("text-anchor","middle").attr("fill",CV("--muted")).text(t("hist_none"));return;}
+  const m={l:40,r:14,t:14,b:24},mut=CV("--muted"),acc=CV("--accent");
+  const x=d3.scalePoint().domain(pts.map(p=>p.period)).range([m.l,W-m.r]);
+  const maxC=d3.max(pts,p=>p.count)||1,y=d3.scaleLinear().domain([0,maxC]).range([H-m.b,m.t]);
+  const g=svg.append("g");
+  g.append("line").attr("x1",m.l).attr("x2",W-m.r).attr("y1",H-m.b).attr("y2",H-m.b).attr("stroke",CV("--line"));
+  const area=d3.area().x(p=>x(p.period)).y0(H-m.b).y1(p=>y(p.count)).curve(d3.curveMonotoneX);
+  const line=d3.line().x(p=>x(p.period)).y(p=>y(p.count)).curve(d3.curveMonotoneX);
+  g.append("path").datum(pts).attr("d",area).attr("fill",acc).attr("fill-opacity",.15);
+  g.append("path").datum(pts).attr("d",line).attr("fill","none").attr("stroke",acc).attr("stroke-width",2);
+  g.selectAll("circle").data(pts).join("circle").attr("cx",p=>x(p.period)).attr("cy",p=>y(p.count)).attr("r",2.5)
+    .attr("fill",p=>sentColor(p.sentiment)).style("cursor","pointer")
+    .on("mouseover",(e,p)=>showTip(`<b>${p.period}</b><br>${t("hist_total")} ${p.count} · ${sentWord(p.sentiment)}`,e)).on("mousemove",moveTip).on("mouseout",hideTip);
+  // x축 라벨(약 6개)
+  const step=Math.ceil(pts.length/6);
+  g.selectAll("text.xl").data(pts.filter((p,i)=>i%step===0)).join("text").attr("class","xl")
+    .attr("x",p=>x(p.period)).attr("y",H-8).attr("text-anchor","middle").attr("fill",mut).attr("font-size",10).text(p=>p.period.slice(5));
+  g.append("text").attr("x",m.l-6).attr("y",m.t+4).attr("text-anchor","end").attr("fill",mut).attr("font-size",10).text(maxC);
+}
+function drawCalendar(){
+  const wrap=$("histCal");wrap.innerHTML="";
+  const days=histDaily||[];if(!days.length)return;
+  const map={};days.forEach(p=>map[p.period]=p.count);
+  const start=new Date(days[0].period+"T00:00:00Z"),end=new Date(days[days.length-1].period+"T00:00:00Z");
+  const cell=13,gap=3,maxC=d3.max(days,p=>p.count)||1;
+  const col=d3.interpolateRgb(CV("--panel2"),CV("--accent"));
+  const startMon=new Date(start);startMon.setUTCDate(start.getUTCDate()-((start.getUTCDay()+6)%7));
+  const weeks=Math.ceil((end-startMon)/(7*864e5))+1;
+  const W=weeks*(cell+gap)+40,H=7*(cell+gap)+20;
+  const svg=d3.select(wrap).append("svg").attr("width",W).attr("height",H);
+  for(let d=new Date(startMon);d<=end;d.setUTCDate(d.getUTCDate()+1)){
+    const iso=d.toISOString().slice(0,10);const wi=Math.floor((d-startMon)/(7*864e5));const dow=(d.getUTCDay()+6)%7;
+    const c=map[iso]||0,inRange=d>=start;
+    svg.append("rect").attr("x",30+wi*(cell+gap)).attr("y",14+dow*(cell+gap)).attr("width",cell).attr("height",cell).attr("rx",2)
+      .attr("fill",inRange?(c?col(Math.min(1,c/maxC)):CV("--panel2")):"transparent").attr("stroke",inRange?CV("--line"):"none").attr("stroke-width",.5)
+      .style("cursor","pointer").on("mouseover",(e)=>showTip(`<b>${iso}</b> · ${c}`,e)).on("mousemove",moveTip).on("mouseout",hideTip);
+  }
+  ["월","수","금"].forEach((lbl,i)=>svg.append("text").attr("x",26).attr("y",14+(i*2)*(cell+gap)+cell-2).attr("text-anchor","end").attr("fill",CV("--muted")).attr("font-size",9).text(lang==="ko"?lbl:["Mon","Wed","Fri"][i]));
+}
+function drawHistory(){if(histDaily){drawHistLine();drawCalendar();}}
+async function histAiReading(){
+  if(!histKw)return;const out=$("histAiOut");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
+  try{const p=new URLSearchParams({q:`'${histKw}' 키워드의 장기 추이와 의미를 분석해줘`,lang,hours:"24"});regionIds().forEach(v=>p.append("regions",v));
+    const r=await fetch(API+"/api/ai/ask?"+p,{method:"POST"});
+    out.innerHTML=r.ok?fmtAI((await r.json()).answer):(r.status===503?t("ai_disabled"):t("ai_err"));
+  }catch(e){out.textContent=t("ai_err");}
+}
+$("histBtn").addEventListener("click",()=>loadHistory($("histInput").value));
+$("histInput").addEventListener("keydown",e=>{if(e.key==="Enter")loadHistory($("histInput").value);});
+$("histInterval").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
+  histIv=b.dataset.iv;$("histInterval").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));drawHistLine();}));
+$("histDays").addEventListener("change",()=>{if(histKw)loadHistory(histKw);});
+$("histAiBtn").addEventListener("click",histAiReading);
+
 //════════════════ 이벤트 ════════════════
 $("run").addEventListener("click",run);
 $("ingest").addEventListener("click",ingestNow);
@@ -977,7 +1106,7 @@ document.addEventListener("keydown",e=>{
   else if(e.key==="a")openAI();
   else if(e.key==="t")$("themeBtn").click();
   else if(e.key==="l"){lang=lang==="ko"?"en":"ko";localStorage.setItem("mt_lang",lang);applyLang();saveState();}
-  else if(/^[1-7]$/.test(e.key)){const tabs=document.querySelectorAll(".tab");if(tabs[+e.key-1])tabs[+e.key-1].click();}
+  else if(/^[1-8]$/.test(e.key)){const tabs=document.querySelectorAll(".tab");if(tabs[+e.key-1])tabs[+e.key-1].click();}
 });
 $("regionSeg").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
   region=b.dataset.region;$("regionSeg").querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
