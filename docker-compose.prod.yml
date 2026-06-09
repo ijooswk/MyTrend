@@ -29,15 +29,16 @@ services:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-mytrend}"
       POSTGRES_DB: "${POSTGRES_DB:-mytrend}"
     # 외부 노출 차단: 루프백만 수신. (host 네트워크라 기본값이면 서버 전 인터페이스 노출됨)
-    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+    # host 네트워크라 포트가 서버에서 직접 점유됨 → 5432 충돌 시 POSTGRES_PORT 로 변경.
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1", "-c", "port=${POSTGRES_PORT:-5432}"]
     volumes:
       - mytrend_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-mytrend} -d ${POSTGRES_DB:-mytrend}"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${POSTGRES_PORT:-5432} -U ${POSTGRES_USER:-mytrend} -d ${POSTGRES_DB:-mytrend}"]
       interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 12
+      start_period: 40s
 
   backend:
     build:
@@ -53,7 +54,7 @@ services:
     env_file:
       - ./backend/.env                # 외부 API 키(EODHD/OpenRouter/Tavily/NewsAPI)
     environment:
-      MYTREND_DATABASE_URL: "postgresql://${POSTGRES_USER:-mytrend}:${POSTGRES_PASSWORD:-mytrend}@127.0.0.1:5432/${POSTGRES_DB:-mytrend}"
+      MYTREND_DATABASE_URL: "postgresql://${POSTGRES_USER:-mytrend}:${POSTGRES_PASSWORD:-mytrend}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-mytrend}"
       MYTREND_BIND_HOST: "127.0.0.1"                   # 외부 비공개(로컬 프록시 전용)
       MYTREND_BIND_PORT: "${MYTREND_API_PORT:-8001}"
       MYTREND_INGEST_INTERVAL_MIN: "${MYTREND_INGEST_INTERVAL_MIN:-20}"
