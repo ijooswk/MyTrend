@@ -29,9 +29,7 @@ MyTrend/
 │   ├── nginx.conf.template # SPA 서빙 + /api 프록시 (env 치환)
 │   └── Dockerfile          # nginx 이미지
 ├── docker-compose.yml      # 로컬(dev): db + backend + frontend
-├── docker-compose.prod.yml # 운영: backend + frontend (DB는 서버 기존 PostgreSQL)
-├── manage.sh               # 로컬 Docker 관리
-└── deploy.sh               # 원격 서버 배포
+└── manage.sh               # 로컬 Docker 관리
 ```
 
 ## 실행
@@ -195,21 +193,3 @@ cp .env.example .env     # 선택: 포트/키 설정
 | `backup` | DB 덤프(`mytrend-backup-<날짜>.sql`) |
 | `clean` | 컨테이너 + 볼륨(DB) 삭제 |
 | `open` | 브라우저로 열기 |
-
-> 운영(prod) 배포는 DB 컨테이너를 띄우지 않고 **서버의 기존 PostgreSQL** 에 접속한다. 자세한 내용은 [DEPLOY.md](DEPLOY.md) 참고.
-
-## 원격 배포 (deploy.sh)
-
-로컬 소스를 rsync로 원격 서버에 전송한 뒤 원격 Docker(`docker-compose.prod.yml`)에서 빌드·기동한다. 레지스트리 불필요. 서버의 기존 PostgreSQL을 사용하므로 서버 `.env`에 `MYTREND_DATABASE_URL`을 설정해야 한다.
-
-```bash
-cp deploy.env.example deploy.env   # 서버 주소/자격증명 입력
-./deploy.sh            # 전송 → 원격 빌드/기동 → 헬스체크
-./deploy.sh --no-build # 재빌드 없이 재기동만
-./deploy.sh --logs     # 배포 후 로그 따라보기
-```
-
-- 인증: **SSH 키 우선**, 없으면 `deploy.env`의 `SERVER_PASSWORD`로 `sshpass` 비밀번호 인증(로컬에 `sshpass` 설치 필요).
-- `deploy.env`(서버 비밀번호)와 `.env`/`backend/.env`(키·DB 자격증명)는 **반드시 커밋 금지**(`.gitignore` 처리됨). SSH 키 + `SERVER_PASSWORD` 공란을 권장.
-- 원격 서버에는 `docker` + `docker compose` 플러그인과 접속 가능한 PostgreSQL이 미리 있어야 한다.
-- 상세 절차·DB 준비·백업/이관은 [DEPLOY.md](DEPLOY.md) 참고.

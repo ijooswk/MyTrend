@@ -2,16 +2,21 @@
 .env
 .env.*
 !.env.example
-!.env.prod.example
 deploy.env
 deploy.env.*
-!deploy.env.example
 backend/.env
 backend/.env.*
 !backend/.env.example
 *.pem
 *.key
 secrets.*
+
+# 배포 관련 (비공개 — 로컬/서버에만 존재, git 추적 안 함)
+deploy.sh
+DEPLOY.md
+docker-compose.prod.yml
+.env.prod.example
+deploy.env.example
 
 # 파이썬
 __pycache__/
