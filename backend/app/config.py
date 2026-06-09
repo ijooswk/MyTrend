@@ -29,13 +29,13 @@ class Settings(BaseSettings):
     # 동작 설정
     # PostgreSQL 접속 문자열(DSN). 예: postgresql://mytrend:secret@db:5432/mytrend
     mytrend_database_url: str = "postgresql://mytrend:mytrend@localhost:5432/mytrend"
-    mytrend_ingest_interval_min: int = 20
+    mytrend_ingest_interval_min: int = 360   # 자동 수집 주기(분). 기본 6시간.
     mytrend_default_hours: int = 24
     mytrend_per_feed_limit: int = 60
     mytrend_cache_ttl: int = 120
     mytrend_ingest_on_start: bool = True
-    # 원시 기사 보존 기간(일). 이보다 오래된 '기사'는 프루닝되지만 일별 롤업은 영구 보존.
-    mytrend_article_retention_days: int = 120
+    # 원시 기사 보존 기간(일). 0 이하이면 프루닝 비활성(영구 보존). 일별 롤업은 항상 영구 보존.
+    mytrend_article_retention_days: int = 0
 
 
 @lru_cache

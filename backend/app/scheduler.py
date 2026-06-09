@@ -36,8 +36,11 @@ class IngestScheduler:
             for i in range(3):                       # 늦게 들어온 기사 대비 최근 3일 재롤업
                 H.rollup_day(self.db, H.day_add(today, -i))
             retention = get_settings().mytrend_article_retention_days
-            removed = self.db.prune(retention)       # 롤업(daily_keyword)은 유지, 기사만 삭제
-            log.info("maintenance: rolled up + pruned %d old articles (keep %dd)", removed, retention)
+            if retention > 0:
+                removed = self.db.prune(retention)   # 롤업(daily_keyword)은 유지, 기사만 삭제
+                log.info("maintenance: rolled up + pruned %d old articles (keep %dd)", removed, retention)
+            else:
+                log.info("maintenance: rolled up; article pruning disabled (keep all, 영구 보존)")
         except Exception as e:
             log.exception("maintenance failed: %s", e)
 

@@ -213,6 +213,8 @@ class DB:
         }
 
     def prune(self, older_than_days: int = 7) -> int:
+        if older_than_days <= 0:
+            return 0  # 보존 무제한 — 원시 기사를 영구 보관(장기 분석용)
         cutoff = time.time() - older_than_days * 86400
         with self.pool.connection() as conn:
             cur = conn.execute("DELETE FROM articles WHERE published_at < %s", (cutoff,))

@@ -3,8 +3,19 @@ import time
 
 import pytest
 
-from app.db import Article
+from app.db import DB, Article
 from app.search import eodhd_query_mode
+
+
+def test_prune_disabled_keeps_all():
+    """retention<=0 이면 DB 접속 없이 0 을 반환(영구 보존)."""
+    class _NoPool:
+        def connection(self):  # 호출되면 안 됨
+            raise AssertionError("retention<=0 인데 DB 에 접근함")
+    db = DB.__new__(DB)
+    db.pool = _NoPool()
+    assert db.prune(0) == 0
+    assert db.prune(-1) == 0
 
 
 @pytest.mark.pg
