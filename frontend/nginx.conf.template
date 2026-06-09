@@ -1,0 +1,38 @@
+# MyTrend nginx — 정적 SPA + 백엔드 API 프록시.
+# ${NGINX_PORT}/${BACKEND_HOST}/${BACKEND_PORT} 는 컨테이너 기동 시 envsubst 로 치환됨.
+# (nginx 런타임 변수 $host/$uri 등은 환경변수가 아니므로 치환되지 않고 보존된다)
+server {
+    listen      ${NGINX_PORT};
+    server_name _;
+
+    root  /usr/share/nginx/html;
+    index index.html;
+
+    gzip            on;
+    gzip_types      text/plain text/css application/javascript application/json image/svg+xml;
+    gzip_min_length 1024;
+
+    # API → 백엔드(uvicorn). 원본 URI(/api/...) 를 그대로 전달.
+    location /api/ {
+        proxy_pass         http://${BACKEND_HOST}:${BACKEND_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header   Host              $host;
+        proxy_set_header   X-Real-IP         $remote_addr;
+        proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;   # AI 호출 등 장시간 응답 대비
+        proxy_send_timeout 120s;
+    }
+
+    # FastAPI 문서/스키마/헬스 별칭도 백엔드로 전달(편의)
+    location ~ ^/(docs|redoc|openapi\.json|health)$ {
+        proxy_pass         http://${BACKEND_HOST}:${BACKEND_PORT}$request_uri;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # SPA: 정적 파일 우선, 없으면 index.html
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}
