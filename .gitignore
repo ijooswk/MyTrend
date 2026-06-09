@@ -1,14 +1,28 @@
-# 비밀/자격증명
-deploy.env
+# 비밀/자격증명 — 실제 값은 절대 커밋 금지. 템플릿(*.example)만 추적.
 .env
+.env.*
+!.env.example
+!.env.prod.example
+deploy.env
+deploy.env.*
+!deploy.env.example
 backend/.env
+backend/.env.*
+!backend/.env.example
+*.pem
+*.key
+secrets.*
 
 # 파이썬
 __pycache__/
 *.pyc
 backend/.venv/
+.pytest_cache/
 
 # 데이터/로그
 *.db
 data/
 *.log
+
+# OS/에디터
+.DS_Store

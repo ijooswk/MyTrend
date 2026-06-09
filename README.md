@@ -4,47 +4,53 @@
 
 ## 구성
 
+아키텍처: **프론트엔드(nginx)** 와 **백엔드(FastAPI/uvicorn)** 를 별도 이미지로 분리하고, 데이터는 **PostgreSQL** 에 저장한다. nginx가 정적 SPA를 서빙하며 `/api/*`를 백엔드로 프록시한다.
+
 ```
 MyTrend/
-├── backend/                # Python + FastAPI
+├── backend/                # Python + FastAPI (API 전용)
 │   ├── app/
-│   │   ├── main.py         # FastAPI 라우트 + 정적 서빙
+│   │   ├── main.py         # FastAPI 라우트 (API)
 │   │   ├── config.py       # 분야·지역·소스·환경설정
-│   │   ├── db.py           # SQLite 데이터 계층
+│   │   ├── db.py           # PostgreSQL 데이터 계층 (psycopg3 + 커넥션 풀)
 │   │   ├── nlp.py          # 키워드 추출(kiwi/휴리스틱) + 트렌드 분석
 │   │   ├── ingest.py       # 전 소스 병렬 수집 오케스트레이션
 │   │   ├── trends.py       # 캐시 + 미스 시 실시간 보완
-│   │   ├── scheduler.py    # APScheduler 주기 수집
-│   │   └── sources/        # 소스 어댑터
-│   │       ├── google_news.py   # Google News RSS (키 불필요)
-│   │       ├── generic_rss.py   # BBC·연합·한겨레 등 (키 불필요)
-│   │       ├── tavily.py        # Tavily 검색 API
-│   │       ├── eodhd.py         # EODHD 금융뉴스 API
-│   │       └── newsapi.py       # NewsAPI.org
+│   │   ├── scheduler.py    # APScheduler 주기 수집 + 일일 유지보수
+│   │   └── sources/        # 소스 어댑터 (google_news/generic_rss/tavily/eodhd/newsapi)
+│   ├── scripts/
+│   │   └── migrate_sqlite_to_pg.py  # 옛 SQLite → PostgreSQL 이관(멱등)
+│   ├── Dockerfile          # 백엔드 이미지
 │   ├── requirements.txt
 │   ├── .env.example
 │   └── run.sh
 ├── frontend/
-│   └── index.html          # D3 기반 시각화 UI (API 소비)
-└── trendmap.html           # (참고) 백엔드 없이 동작하는 단독 버전
+│   ├── index.html          # D3 기반 시각화 UI (상대경로 /api 호출)
+│   ├── nginx.conf.template # SPA 서빙 + /api 프록시 (env 치환)
+│   └── Dockerfile          # nginx 이미지
+├── docker-compose.yml      # 로컬(dev): db + backend + frontend
+├── docker-compose.prod.yml # 운영: backend + frontend (DB는 서버 기존 PostgreSQL)
+├── manage.sh               # 로컬 Docker 관리
+└── deploy.sh               # 원격 서버 배포
 ```
 
 ## 실행
 
+가장 간단한 방법은 Docker다. 로컬 compose는 PostgreSQL까지 함께 띄운다:
+
 ```bash
-cd backend
-bash run.sh          # venv 생성 → 의존성 설치 → .env 생성 → uvicorn 실행
+cp .env.example .env     # 선택: 포트/키 설정
+./manage.sh up           # db + backend + frontend 빌드·기동
+# http://localhost:8000
 ```
 
-브라우저에서 http://localhost:8000 접속.
-
-수동 실행:
+백엔드만 직접 실행하려면 PostgreSQL이 필요하다(`MYTREND_DATABASE_URL`):
 
 ```bash
 cd backend
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # 필요 시 API 키 입력
+cp .env.example .env        # MYTREND_DATABASE_URL + API 키 입력
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -62,7 +68,7 @@ uvicorn app.main:app --reload --port 8000
 
 ## 피딩 방식 (캐시 + 스케줄)
 
-- **스케줄러**: 시작 시 1회 + `MYTREND_INGEST_INTERVAL_MIN`(기본 20분)마다 전 소스 수집 → SQLite 적재. 매일 04시 7일 지난 기사 정리.
+- **스케줄러**: 시작 시 1회 + `MYTREND_INGEST_INTERVAL_MIN`(기본 360분=6시간)마다 전 소스 수집 → PostgreSQL 적재. 기사 `id`(URL/제목 해시) + `ON CONFLICT` 로 **중복은 자동 흡수**, 새 기사만 추가. 매일 새벽 03시 롤업 + 보존정책 적용.
 - **캐시**: 동일 조건 트렌드는 `MYTREND_CACHE_TTL`(기본 120초) 동안 재사용.
 - **실시간 보완**: 저장된 데이터가 없는 조건이 요청되면 즉시 수집 후 응답(backfill).
 
@@ -112,7 +118,7 @@ uvicorn app.main:app --reload --port 8000
 
 ## 장기 누적 분석 (Production)
 
-수개월~수년 데이터가 쌓이면 의미가 드러나는 분석 레이어. 원시 기사는 일별 **롤업 테이블**(`daily_keyword`)로 집계되어 영구 보존되고, 원시 기사 자체는 `MYTREND_ARTICLE_RETENTION_DAYS`(기본 120일) 이후 프루닝된다(롤업은 유지). 매일 새벽 스케줄러가 롤업 후 보존정책을 적용한다.
+수개월~수년 데이터가 쌓이면 의미가 드러나는 분석 레이어. 원시 기사는 일별 **롤업 테이블**(`daily_keyword`)로 집계되어 영구 보존된다. 원시 기사 자체는 `MYTREND_ARTICLE_RETENTION_DAYS` 정책을 따르는데, **기본값 `0`은 무제한(영구 보존)** 이며 양수로 설정하면 그 일수 이후 프루닝된다(롤업은 항상 유지). 매일 새벽 스케줄러가 롤업 후 보존정책을 적용한다.
 
 - **키워드 장기 추이**: 일/주/월 단위 시계열 + GitHub식 **캘린더 히트맵**(History 뷰).
 - **돌발 탐지**: 키워드의 *과거 베이스라인 대비* z-score로 비정상 급증을 포착(노이즈가 아닌 진짜 신호).
@@ -136,10 +142,13 @@ uvicorn app.main:app --reload --port 8000
 ```bash
 cd backend
 pip install -r requirements-dev.txt
+# DB 비의존 테스트만 실행(아래는 자동 skip)
 pytest -q
+# DB·API 통합 테스트까지 실행하려면 테스트용 PostgreSQL DSN 지정
+MYTREND_TEST_DATABASE_URL=postgresql://mytrend:mytrend@localhost:5432/mytrend_test pytest -q
 ```
 
-`tests/` 에 키워드 추출(영문 회귀 포함)·복합명사·감성·모멘텀·DB·검색 라우팅·API 스모크 테스트 수록.
+`tests/` 에 키워드 추출(영문 회귀 포함)·복합명사·감성·모멘텀·DB·검색 라우팅·API 스모크 테스트 수록. DB가 필요한 테스트는 `@pytest.mark.pg` 로 표시되며, `MYTREND_TEST_DATABASE_URL` 가 없으면 자동 skip 된다.
 
 ## 프론트엔드 기능
 
@@ -159,15 +168,15 @@ pytest -q
 
 ## 환경변수
 
-`.env.example` 참고. 주요 항목: `MYTREND_INGEST_INTERVAL_MIN`, `MYTREND_DEFAULT_HOURS`, `MYTREND_PER_FEED_LIMIT`, `MYTREND_CACHE_TTL`, `MYTREND_INGEST_ON_START`.
+`.env.example` 참고. 주요 항목: `MYTREND_DATABASE_URL`(PostgreSQL DSN), `MYTREND_INGEST_INTERVAL_MIN`(기본 360=6시간), `MYTREND_ARTICLE_RETENTION_DAYS`(0=무제한), `MYTREND_DEFAULT_HOURS`, `MYTREND_PER_FEED_LIMIT`, `MYTREND_CACHE_TTL`, `MYTREND_INGEST_ON_START`, `MYTREND_AI_MODEL`. API 키(`TAVILY_API_KEY`/`EODHD_API_TOKEN`/`NEWSAPI_KEY`/`OPENROUTER_API_KEY`)는 `backend/.env`. **실제 키·비밀번호는 `.env`/`backend/.env`/`deploy.env`에만 두며 절대 커밋하지 않는다(`.gitignore` 처리됨).**
 
 ## Docker 실행
 
-단일 컨테이너가 API와 프론트엔드를 함께 서빙하며, SQLite는 named volume(`mytrend_data`)에 영속된다.
+프론트엔드(nginx)와 백엔드(uvicorn)가 별도 컨테이너이고, **로컬(dev) compose는 PostgreSQL 컨테이너까지 함께** 띄운다(데이터는 named volume `mytrend_pgdata`). nginx가 공개 포트를 서빙하고 `/api/*`를 백엔드로 프록시한다.
 
 ```bash
 cp .env.example .env     # 선택: 포트/키 설정
-./manage.sh up           # 빌드 후 백그라운드 기동
+./manage.sh up           # db + backend + frontend 빌드·기동
 # http://localhost:8000
 ```
 
@@ -181,22 +190,26 @@ cp .env.example .env     # 선택: 포트/키 설정
 | `status` | 컨테이너 + 헬스 상태 |
 | `ingest` | 수동 즉시 수집 |
 | `stats` | DB/스케줄러 상태 |
-| `shell` | 컨테이너 셸 |
+| `shell` | 백엔드 컨테이너 셸 |
+| `psql` | PostgreSQL 셸 |
+| `backup` | DB 덤프(`mytrend-backup-<날짜>.sql`) |
 | `clean` | 컨테이너 + 볼륨(DB) 삭제 |
 | `open` | 브라우저로 열기 |
 
+> 운영(prod) 배포는 DB 컨테이너를 띄우지 않고 **서버의 기존 PostgreSQL** 에 접속한다. 자세한 내용은 [DEPLOY.md](DEPLOY.md) 참고.
+
 ## 원격 배포 (deploy.sh)
 
-로컬 소스를 원격 서버로 전송한 뒤 원격 Docker에서 빌드·기동한다. 레지스트리 불필요.
+로컬 소스를 rsync로 원격 서버에 전송한 뒤 원격 Docker(`docker-compose.prod.yml`)에서 빌드·기동한다. 레지스트리 불필요. 서버의 기존 PostgreSQL을 사용하므로 서버 `.env`에 `MYTREND_DATABASE_URL`을 설정해야 한다.
 
 ```bash
-cp deploy.env.example deploy.env   # 서버/자격증명 입력 (이미 채워져 있으면 생략)
-./deploy.sh up        # 전송 → 원격 빌드/기동 → http://<REMOTE_HOST>:<PORT>
-./deploy.sh status    # 원격 상태/헬스
-./deploy.sh logs      # 원격 로그
-./deploy.sh down      # 원격 중지
+cp deploy.env.example deploy.env   # 서버 주소/자격증명 입력
+./deploy.sh            # 전송 → 원격 빌드/기동 → 헬스체크
+./deploy.sh --no-build # 재빌드 없이 재기동만
+./deploy.sh --logs     # 배포 후 로그 따라보기
 ```
 
-- 인증: **SSH 키 우선**, 없으면 `deploy.env`의 `REMOTE_PASS`로 `sshpass` 비밀번호 인증(로컬에 `sshpass` 설치 필요).
-- `deploy.env`에는 비밀번호가 들어가므로 **반드시 커밋 금지**(`.gitignore`에 포함됨). 운영 환경에서는 비밀번호 대신 SSH 키 + `REMOTE_PASS` 공란을 권장.
-- 원격 서버에는 `docker` + `docker compose` 플러그인이 미리 설치돼 있어야 한다(스크립트가 점검 후 안내).
+- 인증: **SSH 키 우선**, 없으면 `deploy.env`의 `SERVER_PASSWORD`로 `sshpass` 비밀번호 인증(로컬에 `sshpass` 설치 필요).
+- `deploy.env`(서버 비밀번호)와 `.env`/`backend/.env`(키·DB 자격증명)는 **반드시 커밋 금지**(`.gitignore` 처리됨). SSH 키 + `SERVER_PASSWORD` 공란을 권장.
+- 원격 서버에는 `docker` + `docker compose` 플러그인과 접속 가능한 PostgreSQL이 미리 있어야 한다.
+- 상세 절차·DB 준비·백업/이관은 [DEPLOY.md](DEPLOY.md) 참고.
