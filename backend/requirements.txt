@@ -6,5 +6,8 @@ apscheduler>=3.10
 python-dotenv>=1.0
 pydantic>=2.6
 pydantic-settings>=2.2
+# PostgreSQL 드라이버 + 커넥션 풀
+psycopg[binary]>=3.1
+psycopg_pool>=3.2
 # 한국어 형태소 분석 (선택). 미설치 시 휴리스틱 토크나이저로 자동 폴백.
 kiwipiepy>=0.17

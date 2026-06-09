@@ -27,7 +27,8 @@ class Settings(BaseSettings):
     mytrend_ai_cache_ttl: int = 600
 
     # 동작 설정
-    mytrend_db_path: str = "mytrend.db"
+    # PostgreSQL 접속 문자열(DSN). 예: postgresql://mytrend:secret@db:5432/mytrend
+    mytrend_database_url: str = "postgresql://mytrend:mytrend@localhost:5432/mytrend"
     mytrend_ingest_interval_min: int = 20
     mytrend_default_hours: int = 24
     mytrend_per_feed_limit: int = 60

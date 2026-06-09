@@ -37,13 +37,14 @@ state: dict = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     s = get_settings()
-    db = DB(s.mytrend_db_path)
+    db = DB(s.mytrend_database_url)
     state["db"] = db
     sched = IngestScheduler(db)
     sched.start()
     state["sched"] = sched
     yield
     sched.shutdown()
+    db.close()
 
 
 app = FastAPI(title="MyTrend API", version="1.0.0", lifespan=lifespan)
