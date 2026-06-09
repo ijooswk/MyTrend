@@ -1,10 +1,7 @@
 """AI 레이어 테스트 — 실제 네트워크 호출 없이 chat 을 목(mock)으로 대체."""
-import os
 import time
 
-os.environ.setdefault("MYTREND_INGEST_ON_START", "false")
-os.environ.setdefault("MYTREND_INGEST_INTERVAL_MIN", "0")
-os.environ["MYTREND_DB_PATH"] = ":memory:"
+import pytest
 
 from app import ai
 from app.db import Article
@@ -45,6 +42,7 @@ def test_parse_labels_extracts_json():
     assert ai.parse_labels("no json here") == {}
 
 
+@pytest.mark.pg
 def test_ai_routes_gated_when_disabled(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m
@@ -55,6 +53,7 @@ def test_ai_routes_gated_when_disabled(monkeypatch):
         assert c.post("/api/ai/ask", params={"q": "왜?"}).status_code == 503
 
 
+@pytest.mark.pg
 def test_ai_models_endpoint(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m
@@ -69,6 +68,7 @@ def test_ai_models_endpoint(monkeypatch):
         assert j["models"][0]["id"] == "openai/gpt-4o-mini"
 
 
+@pytest.mark.pg
 def test_ai_model_param_passed_to_chat(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m
@@ -91,6 +91,7 @@ def test_ai_model_param_passed_to_chat(monkeypatch):
         assert seen.get("model") == "deepseek/deepseek-chat"
 
 
+@pytest.mark.pg
 def test_ai_briefing_with_mocked_chat(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m
@@ -133,6 +134,7 @@ def test_build_keyword_digest_messages():
     assert "본문 내용" in msgs[1]["content"]
 
 
+@pytest.mark.pg
 def test_ai_keyword_digest_with_mocks(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m, extract
@@ -170,6 +172,7 @@ def test_build_relate_messages():
     assert "Korean" in msgs[0]["content"]
 
 
+@pytest.mark.pg
 def test_ai_relate_with_mocked_chat(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m
@@ -190,6 +193,7 @@ def test_ai_relate_with_mocked_chat(monkeypatch):
         assert r.status_code == 200 and "반도체" in r.json()["text"]
 
 
+@pytest.mark.pg
 def test_ai_ask_with_mocked_chat(monkeypatch):
     from fastapi.testclient import TestClient
     from app import main as m

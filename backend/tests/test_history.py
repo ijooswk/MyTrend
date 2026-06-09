@@ -1,12 +1,15 @@
 """장기 누적 분석(롤업·히스토리·돌발·계절성) 테스트."""
 import time
 
-from app.db import DB, Article
+import pytest
+
+from app.db import Article
 from app import history as H
 
+pytestmark = pytest.mark.pg
 
-def test_rollup_day_aggregates():
-    db = DB(":memory:")
+
+def test_rollup_day_aggregates(db):
     day = "2026-06-01"
     start, _ = H.day_bounds(day)
     db.upsert_many([Article(id=str(i), title=t, url="u", source="s", publisher="p",
@@ -21,8 +24,7 @@ def test_rollup_day_aggregates():
     assert db.daily_series("AI", since_day="2026-05-01", until_day="2026-06-30")[0][1] == 2
 
 
-def test_query_history_week_month_buckets():
-    db = DB(":memory:")
+def test_query_history_week_month_buckets(db):
     for i, d in enumerate(["2025-01-06", "2025-01-07", "2025-02-10"]):
         db.replace_daily(d, [(d, "kw", "KR", i + 1, 0.0, "T")])
     wk = H.query_history(db, "kw", since_day="2025-01-01", until_day="2025-03-01", interval="week")
@@ -31,8 +33,7 @@ def test_query_history_week_month_buckets():
     assert {p["period"] for p in mo["points"]} == {"2025-01", "2025-02"}
 
 
-def test_detect_breakouts():
-    db = DB(":memory:")
+def test_detect_breakouts(db):
     asof = "2025-12-31"
     # baseline 변동(0~2), 최근 7일 급증(15)
     for i in range(90):
@@ -46,8 +47,7 @@ def test_detect_breakouts():
     assert "flat" not in bo                     # 변화 없는 키워드는 제외
 
 
-def test_compute_rising_rollup_time_based():
-    db = DB(":memory:")
+def test_compute_rising_rollup_time_based(db):
     asof = H.today_utc()
     # 'rising': 베이스라인 낮다가 최근 급증 / 'steady': 계속 일정
     for i in range(21):
@@ -61,8 +61,7 @@ def test_compute_rising_rollup_time_based():
     assert "steady" not in out                                 # 변화 없으면 제외
 
 
-def test_detect_seasonality_weekly():
-    db = DB(":memory:")
+def test_detect_seasonality_weekly(db):
     base = "2025-01-06"            # 월요일
     for w in range(40):
         for dow in range(7):

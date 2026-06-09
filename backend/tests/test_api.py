@@ -1,17 +1,14 @@
 """DB·검색 라우팅·API 엔드포인트 테스트."""
-import os
 import time
 
-os.environ.setdefault("MYTREND_INGEST_ON_START", "false")
-os.environ.setdefault("MYTREND_INGEST_INTERVAL_MIN", "0")
-os.environ["MYTREND_DB_PATH"] = ":memory:"
+import pytest
 
-from app.db import DB, Article
+from app.db import Article
 from app.search import eodhd_query_mode
 
 
-def test_db_upsert_dedup_and_query():
-    db = DB(":memory:")
+@pytest.mark.pg
+def test_db_upsert_dedup_and_query(db):
     now = time.time()
     a = Article(id="x1", title="t", url="u", source="rss", publisher="p",
                 category="TECHNOLOGY", region="KR", lang="ko",
@@ -40,6 +37,7 @@ def test_eodhd_query_mode_ticker_vs_tag():
     assert eodhd_query_mode("삼성전자") == "t"                   # 비ASCII → 태그
 
 
+@pytest.mark.pg
 def test_endpoints_smoke():
     from fastapi.testclient import TestClient
     from app import main as m
