@@ -1,36 +1,37 @@
 name: mytrend-prod
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 프로덕션(단독 서버) 배포용 compose.  (quantum-invest 배포 패턴 참고)
+# 프로덕션(단독 서버) 배포용 compose — 2개 이미지 분리.
 #
-#   - 단일 컨테이너: FastAPI(uvicorn) 가 API(/api/*) 와 정적 프론트엔드(/) 를 함께 서빙.
-#   - SQLite + 일별 롤업은 named volume(mytrend_data) 에 영속(서버 rsync 와 분리되어 안전).
+#   backend  : FastAPI(uvicorn). 호스트 루프백 127.0.0.1:${MYTREND_API_PORT:-8001} 에만
+#              바인딩(외부 비공개). SQLite + 일별 롤업은 named volume(mytrend_data) 영속.
+#   frontend : nginx. 공개 포트(${MYTREND_PORT:-19090}) 에 바인딩, /api/ 를 위 백엔드로 프록시.
 #
-# ★ network_mode: host
-#   서버가 NordVPN Meshnet(100.x) 뒤에 있으면 Docker 가 공개 포트를 컨테이너의 172.x
-#   브리지로 포워딩하는데 Meshnet 이 그 트래픽을 드롭한다(SSH 는 호스트 직결이라 됨).
-#   → uvicorn 을 호스트 인터페이스에 직접 바인딩(host 네트워크)해 Meshnet 차단을 피한다.
-#   공개 포트는 .env 의 MYTREND_PORT(기본 19090). host 모드라 `ports:`/`networks:` 는 무시.
+# ★ network_mode: host (두 서비스 모두)
+#   서버가 NordVPN Meshnet(100.x) 뒤에 있으면 Docker 가 공개 포트를 컨테이너 172.x 브리지로
+#   포워딩하는데 Meshnet 이 그 트래픽을 드롭한다(SSH 는 호스트 직결이라 됨).
+#   → 두 컨테이너를 호스트 네트워크에 두고 nginx 만 공개 포트에 직접 바인딩,
+#     백엔드는 127.0.0.1 내부 통신 → 브리지/published-port 를 모두 회피한다.
 #
-# 환경변수: 같은 디렉토리의 .env(없으면 .env.prod.example 복사) + backend/.env(API 키).
+# 환경변수: 같은 디렉토리의 .env(포트·동작) + backend/.env(API 키).
+# 진입점: http://<서버IP>:${MYTREND_PORT:-19090}
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
-  mytrend:
+  backend:
     build:
-      context: .
+      context: ./backend
       dockerfile: Dockerfile
-    image: mytrend/app:latest
-    container_name: mytrend
+    image: mytrend-backend:latest
+    container_name: mytrend-backend
     restart: unless-stopped
     network_mode: host
-    # 외부 API 키(EODHD/OpenRouter/Tavily)는 backend/.env 에서 주입
     env_file:
-      - ./backend/.env
-    # 아래 environment 가 env_file 보다 우선(운영 동작/포트 오버라이드)
+      - ./backend/.env                # 외부 API 키(EODHD/OpenRouter/Tavily/NewsAPI)
     environment:
+      MYTREND_BIND_HOST: "127.0.0.1"                   # 외부 비공개(로컬 프록시 전용)
+      MYTREND_BIND_PORT: "${MYTREND_API_PORT:-8001}"
       MYTREND_DB_PATH: /app/data/mytrend.db
-      MYTREND_PORT: "${MYTREND_PORT:-19090}"
       MYTREND_INGEST_INTERVAL_MIN: "${MYTREND_INGEST_INTERVAL_MIN:-20}"
       MYTREND_DEFAULT_HOURS: "${MYTREND_DEFAULT_HOURS:-24}"
       MYTREND_PER_FEED_LIMIT: "${MYTREND_PER_FEED_LIMIT:-60}"
@@ -38,17 +39,35 @@ services:
       MYTREND_INGEST_ON_START: "${MYTREND_INGEST_ON_START:-true}"
       MYTREND_ARTICLE_RETENTION_DAYS: "${MYTREND_ARTICLE_RETENTION_DAYS:-120}"
       MYTREND_AI_MODEL: "${MYTREND_AI_MODEL:-openai/gpt-4o-mini}"
-    # host 네트워크라 uvicorn 이 호스트 포트(MYTREND_PORT)에 직접 바인딩
-    command: >
-      sh -c "uvicorn app.main:app --host 0.0.0.0 --port ${MYTREND_PORT:-19090}"
     volumes:
-      - mytrend_data:/app/data            # SQLite + 롤업 영속(rsync 영향 없음)
+      - mytrend_data:/app/data        # SQLite + 롤업 영속(rsync 영향 없음)
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:${MYTREND_PORT:-19090}/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${MYTREND_API_PORT:-8001}/api/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 25s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: mytrend-frontend:latest
+    container_name: mytrend-frontend
+    restart: unless-stopped
+    network_mode: host
+    depends_on:
+      - backend
+    environment:
+      NGINX_PORT: "${MYTREND_PORT:-19090}"       # 공개 진입 포트(host 바인딩)
+      BACKEND_HOST: "127.0.0.1"
+      BACKEND_PORT: "${MYTREND_API_PORT:-8001}"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:${MYTREND_PORT:-19090}/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
 volumes:
   mytrend_data:
