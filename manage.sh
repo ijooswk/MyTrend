@@ -36,7 +36,7 @@ MyTrend 관리 명령:
   ./manage.sh status     컨테이너/헬스 상태
   ./manage.sh ingest     수동 즉시 수집 트리거
   ./manage.sh stats      DB/스케줄러 상태 조회
-  ./manage.sh shell      컨테이너 셸 진입
+  ./manage.sh shell      백엔드 컨테이너 셸 진입
   ./manage.sh clean      컨테이너+볼륨(DB)까지 삭제
   ./manage.sh open       브라우저로 열기
 EOF
@@ -56,7 +56,7 @@ case "$cmd" in
   ingest)  echo "수집 트리거…"
            curl -fsS -X POST "http://localhost:${PORT}/api/ingest" | sed 's/,/,\n/g' ;;
   stats)   curl -fsS "http://localhost:${PORT}/api/stats" ;;
-  shell)   $DC exec mytrend /bin/bash || $DC exec mytrend /bin/sh ;;
+  shell)   $DC exec backend /bin/bash || $DC exec backend /bin/sh ;;
   clean)   $DC down -v; echo "🗑  컨테이너 및 볼륨(DB) 삭제 완료" ;;
   open)    URL="http://localhost:${PORT}"
            (command -v open >/dev/null && open "$URL") || \

@@ -1,6 +1,6 @@
 # 배포 가이드 (Docker · 원격 서버)
 
-원격 서버 `100.98.178.217` 에 Docker 로 배포한다. MyTrend 는 **단일 컨테이너**로, FastAPI(uvicorn) 가 API(`/api/*`) 와 정적 프론트엔드(`/`) 를 함께 서빙한다. 외부 진입점은 포트 하나(`19090`).
+원격 서버 `100.98.178.217` 에 Docker 로 배포한다. MyTrend 는 **2개 컨테이너**로 구성된다: `frontend`(nginx) 가 정적 SPA 를 서빙하며 공개 포트(`19090`)에 바인딩하고 `/api/*` 요청을 `backend`(FastAPI/uvicorn, 내부 `127.0.0.1:8001`)로 프록시한다. 외부 진입점은 nginx 포트 하나(`19090`)뿐이며 백엔드는 외부로 노출되지 않는다. 두 컨테이너 모두 `network_mode: host`(Meshnet 회피)로 동작하고, SQLite DB 는 named volume `mytrend_data` 에 영속된다.
 
 ## 사전 준비 (최초 1회)
 

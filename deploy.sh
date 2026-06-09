@@ -3,7 +3,7 @@
 # MyTrend — 원격 서버 배포 스크립트  (quantum-invest 배포 패턴 참고)
 #
 #   1) 로컬 소스를 rsync 로 서버에 동기화 (.git/.venv/__pycache__/*.db 등 제외)
-#   2) 서버에서 docker compose 로 빌드 & 기동 (단일 컨테이너: API + 정적 프론트)
+#   2) 서버에서 docker compose 로 빌드 & 기동 (2컨테이너: nginx 프론트 + uvicorn 백엔드)
 #   3) /api/health 헬스체크
 #
 # 사용법:
