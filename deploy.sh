@@ -89,7 +89,7 @@ run_ssh "cd '${REMOTE_DIR}' && \
 # ── 3. 빌드 & 기동 ──────────────────────────────────────────────────────────────
 echo "==> [3/4] docker compose 기동"
 BUILD_FLAG=""; [ "${DO_BUILD}" -eq 1 ] && BUILD_FLAG="--build"
-run_ssh "cd '${REMOTE_DIR}' && docker compose -f ${COMPOSE_FILE} up -d ${BUILD_FLAG}"
+run_ssh "cd '${REMOTE_DIR}' && docker compose -f ${COMPOSE_FILE} up -d --remove-orphans ${BUILD_FLAG}"
 
 # ── 4. 헬스체크 ─────────────────────────────────────────────────────────────────
 echo "==> [4/4] 헬스체크 (최대 60초 대기)"

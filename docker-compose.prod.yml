@@ -1,45 +1,26 @@
 name: mytrend-prod
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 프로덕션(단독 서버) 배포용 compose — 3개 서비스.
+# 프로덕션(단독 서버) 배포용 compose — 2개 서비스 + 서버의 기존 PostgreSQL 사용.
 #
-#   db       : PostgreSQL 16. ★ listen_addresses=127.0.0.1 로 루프백만 수신(외부 비공개).
-#              데이터는 named volume(mytrend_pgdata) 영속(서버 rsync 와 분리되어 안전).
-#   backend  : FastAPI(uvicorn). 127.0.0.1:${MYTREND_API_PORT:-8001} 에만 바인딩, db 에 접속.
+#   backend  : FastAPI(uvicorn). 127.0.0.1:${MYTREND_API_PORT:-8001} 에만 바인딩.
+#              ★ DB 는 컨테이너가 아니라 '서버에 이미 떠 있는' PostgreSQL 에 접속한다.
 #   frontend : nginx. 공개 포트(${MYTREND_PORT:-19090}) 에 바인딩, /api/ 를 backend 로 프록시.
 #
-# ★ network_mode: host (세 서비스 모두)
+# ★ network_mode: host (두 서비스 모두)
 #   서버가 NordVPN Meshnet(100.x) 뒤에 있으면 Docker 가 공개 포트를 컨테이너 172.x 브리지로
 #   포워딩하는데 Meshnet 이 그 트래픽을 드롭한다(SSH 는 호스트 직결이라 됨).
-#   → 컨테이너를 호스트 네트워크에 두고 nginx 만 공개 포트에 바인딩, db/backend 는 127.0.0.1
-#     내부 통신 → 브리지/published-port 를 모두 회피한다. db 는 위 listen_addresses 로 비공개.
+#   → 컨테이너를 호스트 네트워크에 두고 nginx 만 공개 포트에 바인딩, backend 는 127.0.0.1
+#     내부 통신 → 브리지/published-port 를 회피한다.
+#   backend 가 host 네트워크이므로 컨테이너의 127.0.0.1 == 서버 localhost → 서버 PostgreSQL
+#   (127.0.0.1:5432)에 그대로 접속된다.
 #
-# 환경변수: 같은 디렉토리의 .env(포트·동작·DB 자격증명) + backend/.env(API 키).
+# 환경변수: 같은 디렉토리의 .env(포트·동작·DB 접속) + backend/.env(API 키).
+#   DB 접속은 .env 의 MYTREND_DATABASE_URL 로 지정(시크릿이므로 .env 에만, 커밋 금지).
 # 진입점: http://<서버IP>:${MYTREND_PORT:-19090}
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
-  db:
-    image: postgres:16-alpine
-    container_name: mytrend-db
-    restart: unless-stopped
-    network_mode: host
-    environment:
-      POSTGRES_USER: "${POSTGRES_USER:-mytrend}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-mytrend}"
-      POSTGRES_DB: "${POSTGRES_DB:-mytrend}"
-    # 외부 노출 차단: 루프백만 수신. (host 네트워크라 기본값이면 서버 전 인터페이스 노출됨)
-    # host 네트워크라 포트가 서버에서 직접 점유됨 → 5432 충돌 시 POSTGRES_PORT 로 변경.
-    command: ["postgres", "-c", "listen_addresses=127.0.0.1", "-c", "port=${POSTGRES_PORT:-5432}"]
-    volumes:
-      - mytrend_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p ${POSTGRES_PORT:-5432} -U ${POSTGRES_USER:-mytrend} -d ${POSTGRES_DB:-mytrend}"]
-      interval: 10s
-      timeout: 5s
-      retries: 12
-      start_period: 40s
-
   backend:
     build:
       context: ./backend
@@ -48,13 +29,11 @@ services:
     container_name: mytrend-backend
     restart: unless-stopped
     network_mode: host
-    depends_on:
-      db:
-        condition: service_healthy
     env_file:
       - ./backend/.env                # 외부 API 키(EODHD/OpenRouter/Tavily/NewsAPI)
     environment:
-      MYTREND_DATABASE_URL: "postgresql://${POSTGRES_USER:-mytrend}:${POSTGRES_PASSWORD:-mytrend}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-mytrend}"
+      # 서버의 기존 PostgreSQL 접속 문자열. .env(미커밋)에서 주입.
+      MYTREND_DATABASE_URL: "${MYTREND_DATABASE_URL:-postgresql://mytrend:mytrend@127.0.0.1:5432/mytrend}"
       MYTREND_BIND_HOST: "127.0.0.1"                   # 외부 비공개(로컬 프록시 전용)
       MYTREND_BIND_PORT: "${MYTREND_API_PORT:-8001}"
       MYTREND_INGEST_INTERVAL_MIN: "${MYTREND_INGEST_INTERVAL_MIN:-20}"
@@ -91,6 +70,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
-
-volumes:
-  mytrend_pgdata:

@@ -1,28 +1,33 @@
 # 배포 가이드 (Docker · 원격 서버)
 
-원격 서버 `100.98.178.217` 에 Docker 로 배포한다. MyTrend 는 **3개 컨테이너**로 구성된다: `frontend`(nginx) 가 정적 SPA 를 서빙하며 공개 포트(`19090`)에 바인딩하고 `/api/*` 요청을 `backend`(FastAPI/uvicorn, 내부 `127.0.0.1:8001`)로 프록시하며, `backend` 는 `db`(PostgreSQL 16, 내부 `127.0.0.1:5432`)에 접속한다. 외부 진입점은 nginx 포트 하나(`19090`)뿐이며 backend·db 는 외부로 노출되지 않는다(db 는 `listen_addresses=127.0.0.1` 로 루프백만 수신). 세 컨테이너 모두 `network_mode: host`(Meshnet 회피)로 동작하고, DB 데이터는 named volume `mytrend_pgdata` 에 영속된다.
+원격 서버 `100.98.178.217` 에 Docker 로 배포한다. MyTrend 는 **2개 컨테이너 + 서버의 기존 PostgreSQL** 로 구성된다: `frontend`(nginx) 가 정적 SPA 를 서빙하며 공개 포트(`19090`)에 바인딩하고 `/api/*` 요청을 `backend`(FastAPI/uvicorn, 내부 `127.0.0.1:8001`)로 프록시한다. DB 는 컨테이너가 아니라 **서버에 이미 떠 있는 PostgreSQL** 을 쓴다 — `backend` 가 `network_mode: host` 이므로 컨테이너의 `127.0.0.1:5432` 가 곧 서버 localhost 의 PostgreSQL 이다. 외부 진입점은 nginx 포트 하나(`19090`)뿐이며 backend·DB 는 외부로 노출되지 않는다. 두 컨테이너 모두 `network_mode: host`(Meshnet 회피)로 동작한다.
 
-> **DB 자격증명**: prod `.env` 의 `POSTGRES_PASSWORD` 를 배포 전 반드시 강력한 값으로 변경한다.
+> **DB 접속**: prod `.env` 의 `MYTREND_DATABASE_URL` 에 서버 PostgreSQL 의 전용 DB·계정 자격증명을 넣는다(시크릿이므로 커밋 금지). 서버에서 1회 준비:
+> ```sql
+> CREATE DATABASE mytrend;
+> CREATE USER mytrend WITH PASSWORD '...';
+> GRANT ALL PRIVILEGES ON DATABASE mytrend TO mytrend;
+> ```
 
 ## 기존 SQLite 데이터 이관 (해당 시)
 
-이전 버전(SQLite)에서 올라오는 경우, 옛 `mytrend.db` 를 PostgreSQL 로 옮긴다(멱등):
+이전 버전(SQLite)에서 올라오는 경우, 옛 `mytrend.db` 를 서버 PostgreSQL 로 옮긴다(멱등):
 
 ```bash
 # 1) 서버에 옛 SQLite 파일을 둔 뒤 backend 컨테이너로 복사
 docker compose -f docker-compose.prod.yml cp ./old-mytrend.db backend:/tmp/old.db
-# 2) 이관 실행 (대상 DSN 은 컨테이너의 MYTREND_DATABASE_URL 사용)
+# 2) 이관 실행 (대상 DSN 은 컨테이너의 MYTREND_DATABASE_URL = 서버 PG)
 docker compose -f docker-compose.prod.yml exec backend \
     python /app/backend/scripts/migrate_sqlite_to_pg.py --sqlite /tmp/old.db
 ```
 
 ## 백업 / 복원
 
+DB 는 서버 PostgreSQL 이므로 서버에서 직접 `pg_dump`/`psql` 로 처리한다:
+
 ```bash
-docker compose -f docker-compose.prod.yml exec db \
-    pg_dump -U mytrend mytrend > mytrend-backup-$(date +%F).sql      # 백업
-cat backup.sql | docker compose -f docker-compose.prod.yml exec -T db \
-    psql -U mytrend -d mytrend                                       # 복원
+pg_dump -U mytrend -h 127.0.0.1 mytrend > mytrend-backup-$(date +%F).sql   # 백업
+psql   -U mytrend -h 127.0.0.1 -d mytrend < mytrend-backup.sql             # 복원
 ```
 
 ## 사전 준비 (최초 1회)
