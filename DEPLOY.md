@@ -1,6 +1,29 @@
 # 배포 가이드 (Docker · 원격 서버)
 
-원격 서버 `100.98.178.217` 에 Docker 로 배포한다. MyTrend 는 **2개 컨테이너**로 구성된다: `frontend`(nginx) 가 정적 SPA 를 서빙하며 공개 포트(`19090`)에 바인딩하고 `/api/*` 요청을 `backend`(FastAPI/uvicorn, 내부 `127.0.0.1:8001`)로 프록시한다. 외부 진입점은 nginx 포트 하나(`19090`)뿐이며 백엔드는 외부로 노출되지 않는다. 두 컨테이너 모두 `network_mode: host`(Meshnet 회피)로 동작하고, SQLite DB 는 named volume `mytrend_data` 에 영속된다.
+원격 서버 `100.98.178.217` 에 Docker 로 배포한다. MyTrend 는 **3개 컨테이너**로 구성된다: `frontend`(nginx) 가 정적 SPA 를 서빙하며 공개 포트(`19090`)에 바인딩하고 `/api/*` 요청을 `backend`(FastAPI/uvicorn, 내부 `127.0.0.1:8001`)로 프록시하며, `backend` 는 `db`(PostgreSQL 16, 내부 `127.0.0.1:5432`)에 접속한다. 외부 진입점은 nginx 포트 하나(`19090`)뿐이며 backend·db 는 외부로 노출되지 않는다(db 는 `listen_addresses=127.0.0.1` 로 루프백만 수신). 세 컨테이너 모두 `network_mode: host`(Meshnet 회피)로 동작하고, DB 데이터는 named volume `mytrend_pgdata` 에 영속된다.
+
+> **DB 자격증명**: prod `.env` 의 `POSTGRES_PASSWORD` 를 배포 전 반드시 강력한 값으로 변경한다.
+
+## 기존 SQLite 데이터 이관 (해당 시)
+
+이전 버전(SQLite)에서 올라오는 경우, 옛 `mytrend.db` 를 PostgreSQL 로 옮긴다(멱등):
+
+```bash
+# 1) 서버에 옛 SQLite 파일을 둔 뒤 backend 컨테이너로 복사
+docker compose -f docker-compose.prod.yml cp ./old-mytrend.db backend:/tmp/old.db
+# 2) 이관 실행 (대상 DSN 은 컨테이너의 MYTREND_DATABASE_URL 사용)
+docker compose -f docker-compose.prod.yml exec backend \
+    python /app/backend/scripts/migrate_sqlite_to_pg.py --sqlite /tmp/old.db
+```
+
+## 백업 / 복원
+
+```bash
+docker compose -f docker-compose.prod.yml exec db \
+    pg_dump -U mytrend mytrend > mytrend-backup-$(date +%F).sql      # 백업
+cat backup.sql | docker compose -f docker-compose.prod.yml exec -T db \
+    psql -U mytrend -d mytrend                                       # 복원
+```
 
 ## 사전 준비 (최초 1회)
 

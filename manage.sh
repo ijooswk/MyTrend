@@ -37,6 +37,8 @@ MyTrend 관리 명령:
   ./manage.sh ingest     수동 즉시 수집 트리거
   ./manage.sh stats      DB/스케줄러 상태 조회
   ./manage.sh shell      백엔드 컨테이너 셸 진입
+  ./manage.sh psql       PostgreSQL 셸(psql) 진입
+  ./manage.sh backup     DB 덤프를 ./mytrend-backup-<날짜>.sql 로 저장
   ./manage.sh clean      컨테이너+볼륨(DB)까지 삭제
   ./manage.sh open       브라우저로 열기
 EOF
@@ -57,6 +59,10 @@ case "$cmd" in
            curl -fsS -X POST "http://localhost:${PORT}/api/ingest" | sed 's/,/,\n/g' ;;
   stats)   curl -fsS "http://localhost:${PORT}/api/stats" ;;
   shell)   $DC exec backend /bin/bash || $DC exec backend /bin/sh ;;
+  psql)    $DC exec db psql -U "${POSTGRES_USER:-mytrend}" -d "${POSTGRES_DB:-mytrend}" ;;
+  backup)  OUT="mytrend-backup-$(date +%F).sql"
+           $DC exec -T db pg_dump -U "${POSTGRES_USER:-mytrend}" "${POSTGRES_DB:-mytrend}" > "$OUT"
+           echo "💾 저장됨: $OUT" ;;
   clean)   $DC down -v; echo "🗑  컨테이너 및 볼륨(DB) 삭제 완료" ;;
   open)    URL="http://localhost:${PORT}"
            (command -v open >/dev/null && open "$URL") || \
