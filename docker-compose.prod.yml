@@ -1,23 +1,44 @@
 name: mytrend-prod
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 프로덕션(단독 서버) 배포용 compose — 2개 이미지 분리.
+# 프로덕션(단독 서버) 배포용 compose — 3개 서비스.
 #
-#   backend  : FastAPI(uvicorn). 호스트 루프백 127.0.0.1:${MYTREND_API_PORT:-8001} 에만
-#              바인딩(외부 비공개). SQLite + 일별 롤업은 named volume(mytrend_data) 영속.
-#   frontend : nginx. 공개 포트(${MYTREND_PORT:-19090}) 에 바인딩, /api/ 를 위 백엔드로 프록시.
+#   db       : PostgreSQL 16. ★ listen_addresses=127.0.0.1 로 루프백만 수신(외부 비공개).
+#              데이터는 named volume(mytrend_pgdata) 영속(서버 rsync 와 분리되어 안전).
+#   backend  : FastAPI(uvicorn). 127.0.0.1:${MYTREND_API_PORT:-8001} 에만 바인딩, db 에 접속.
+#   frontend : nginx. 공개 포트(${MYTREND_PORT:-19090}) 에 바인딩, /api/ 를 backend 로 프록시.
 #
-# ★ network_mode: host (두 서비스 모두)
+# ★ network_mode: host (세 서비스 모두)
 #   서버가 NordVPN Meshnet(100.x) 뒤에 있으면 Docker 가 공개 포트를 컨테이너 172.x 브리지로
 #   포워딩하는데 Meshnet 이 그 트래픽을 드롭한다(SSH 는 호스트 직결이라 됨).
-#   → 두 컨테이너를 호스트 네트워크에 두고 nginx 만 공개 포트에 직접 바인딩,
-#     백엔드는 127.0.0.1 내부 통신 → 브리지/published-port 를 모두 회피한다.
+#   → 컨테이너를 호스트 네트워크에 두고 nginx 만 공개 포트에 바인딩, db/backend 는 127.0.0.1
+#     내부 통신 → 브리지/published-port 를 모두 회피한다. db 는 위 listen_addresses 로 비공개.
 #
-# 환경변수: 같은 디렉토리의 .env(포트·동작) + backend/.env(API 키).
+# 환경변수: 같은 디렉토리의 .env(포트·동작·DB 자격증명) + backend/.env(API 키).
 # 진입점: http://<서버IP>:${MYTREND_PORT:-19090}
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: mytrend-db
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-mytrend}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-mytrend}"
+      POSTGRES_DB: "${POSTGRES_DB:-mytrend}"
+    # 외부 노출 차단: 루프백만 수신. (host 네트워크라 기본값이면 서버 전 인터페이스 노출됨)
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1"]
+    volumes:
+      - mytrend_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-mytrend} -d ${POSTGRES_DB:-mytrend}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   backend:
     build:
       context: ./backend
@@ -26,12 +47,15 @@ services:
     container_name: mytrend-backend
     restart: unless-stopped
     network_mode: host
+    depends_on:
+      db:
+        condition: service_healthy
     env_file:
       - ./backend/.env                # 외부 API 키(EODHD/OpenRouter/Tavily/NewsAPI)
     environment:
+      MYTREND_DATABASE_URL: "postgresql://${POSTGRES_USER:-mytrend}:${POSTGRES_PASSWORD:-mytrend}@127.0.0.1:5432/${POSTGRES_DB:-mytrend}"
       MYTREND_BIND_HOST: "127.0.0.1"                   # 외부 비공개(로컬 프록시 전용)
       MYTREND_BIND_PORT: "${MYTREND_API_PORT:-8001}"
-      MYTREND_DB_PATH: /app/data/mytrend.db
       MYTREND_INGEST_INTERVAL_MIN: "${MYTREND_INGEST_INTERVAL_MIN:-20}"
       MYTREND_DEFAULT_HOURS: "${MYTREND_DEFAULT_HOURS:-24}"
       MYTREND_PER_FEED_LIMIT: "${MYTREND_PER_FEED_LIMIT:-60}"
@@ -39,8 +63,6 @@ services:
       MYTREND_INGEST_ON_START: "${MYTREND_INGEST_ON_START:-true}"
       MYTREND_ARTICLE_RETENTION_DAYS: "${MYTREND_ARTICLE_RETENTION_DAYS:-120}"
       MYTREND_AI_MODEL: "${MYTREND_AI_MODEL:-openai/gpt-4o-mini}"
-    volumes:
-      - mytrend_data:/app/data        # SQLite + 롤업 영속(rsync 영향 없음)
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${MYTREND_API_PORT:-8001}/api/health || exit 1"]
       interval: 30s
@@ -70,4 +92,4 @@ services:
       start_period: 15s
 
 volumes:
-  mytrend_data:
+  mytrend_pgdata:

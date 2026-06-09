@@ -1,14 +1,32 @@
 name: mytrend
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 로컬(dev) compose — 2개 이미지 분리:
-#   backend  : FastAPI(uvicorn) API. 내부 네트워크에서만 노출(직접 디버깅용 127.0.0.1:8001).
+# 로컬(dev) compose — 3개 서비스:
+#   db       : PostgreSQL 16. 데이터는 named volume(mytrend_pgdata) 영속.
+#   backend  : FastAPI(uvicorn) API. db 에 접속. 디버깅용 127.0.0.1:8001 노출.
 #   frontend : nginx 가 SPA 서빙 + /api/ 를 backend 로 프록시. 외부 진입점.
-# 두 서비스는 compose 기본 bridge 네트워크에서 서비스명(backend)으로 통신.
+# 서비스들은 compose 기본 bridge 네트워크에서 서비스명(db/backend)으로 통신.
 # 진입점: http://localhost:${MYTREND_PORT:-8000}
 # ──────────────────────────────────────────────────────────────────────────────
 
 services:
+  db:
+    image: postgres:16-alpine
+    container_name: mytrend-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-mytrend}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-mytrend}"
+      POSTGRES_DB: "${POSTGRES_DB:-mytrend}"
+    volumes:
+      - mytrend_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mytrend} -d ${POSTGRES_DB:-mytrend}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   backend:
     build:
       context: ./backend
@@ -16,12 +34,15 @@ services:
     image: mytrend-backend:latest
     container_name: mytrend-backend
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     expose:
       - "8000"                       # 네트워크 내부 노출(프론트가 프록시)
     ports:
       - "127.0.0.1:8001:8000"        # 직접 API/docs 디버깅(로컬 전용)
     environment:
-      MYTREND_DB_PATH: /app/data/mytrend.db
+      MYTREND_DATABASE_URL: "postgresql://${POSTGRES_USER:-mytrend}:${POSTGRES_PASSWORD:-mytrend}@db:5432/${POSTGRES_DB:-mytrend}"
       MYTREND_INGEST_INTERVAL_MIN: "${MYTREND_INGEST_INTERVAL_MIN:-20}"
       MYTREND_DEFAULT_HOURS: "${MYTREND_DEFAULT_HOURS:-24}"
       MYTREND_PER_FEED_LIMIT: "${MYTREND_PER_FEED_LIMIT:-60}"
@@ -34,8 +55,6 @@ services:
       NEWSAPI_KEY: "${NEWSAPI_KEY:-}"
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:-}"
       MYTREND_AI_MODEL: "${MYTREND_AI_MODEL:-openai/gpt-4o-mini}"
-    volumes:
-      - mytrend_data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8000/api/health"]
       interval: 30s
@@ -61,4 +80,4 @@ services:
       BACKEND_PORT: "8000"
 
 volumes:
-  mytrend_data:
+  mytrend_pgdata:
