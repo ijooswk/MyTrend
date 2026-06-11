@@ -99,6 +99,16 @@
   #histInfo{display:flex;gap:10px;flex-wrap:wrap}
   .hchip{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;font-size:12px}
   .hchip b{color:var(--accent)}
+  .hidden{display:none!important}
+  .histback{background:var(--panel2);border:1px solid var(--line);color:var(--txt);border-radius:8px;
+    padding:7px 12px;font-weight:700;cursor:pointer}.histback:hover{border-color:var(--accent)}
+  .hchip.bk{cursor:pointer}.hchip.bk:hover{border-color:var(--accent)}
+  .hbadge{display:inline-block;margin-left:6px;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:800;vertical-align:middle}
+  .hbadge.new{background:rgba(168,85,247,.16);color:#c4a4ff}
+  .hbadge.spike{background:rgba(251,191,36,.16);color:#fbbf24}
+  .hsum{width:100%;font-size:12.5px;color:var(--txt);line-height:1.65;margin-top:6px;
+    padding:10px 12px;background:var(--card);border:1px solid var(--line);border-radius:10px}
+  .hsum b{color:var(--accent)}.hsum .up{color:var(--ok)}.hsum .down{color:var(--err)}
   .radarai{position:absolute;right:14px;bottom:14px;max-width:320px;max-height:42%;overflow-y:auto;
     background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 12px 12px;font-size:12px;
     line-height:1.6;color:var(--txt);box-shadow:0 4px 16px rgba(0,0,0,.2)}.radarai:empty{display:none}
@@ -275,6 +285,7 @@
         <div id="radarAiOut" class="radarai"></div></div>
       <div class="pane" data-v="history"><div id="histWrap">
         <div class="histbar">
+          <button id="histBack" class="histback hidden" data-i18n="hist_back"></button>
           <input id="histInput" data-i18n-ph="hist_ph">
           <button id="histBtn" data-i18n="hist_btn"></button>
           <span class="cmode" id="histInterval">
@@ -344,6 +355,9 @@ const STR={
     iv_day:"일",iv_week:"주",iv_month:"월",ai_hist_btn:"✨ AI 맥락 해설",
     hist_title:"장기 추이를 볼 키워드를 입력하세요",hist_desc:"누적된 일별 데이터로 추세·계절성·돌발을 분석합니다.",
     hist_total:"총 등장",hist_peak:"정점",hist_seasonal:"계절성",hist_breakout:"돌발",hist_none:"데이터 없음",
+    hist_back:"← 목록",hist_breaklegend:"최근 급등 키워드 · 클릭하면 추이를 봅니다",hist_breaknow:"✨ 지금 뜨는 주제",
+    hist_new:"신규",hist_dir:"추세",hist_momentum:"모멘텀",hist_vol:"변동성",
+    dir_up:"상승",dir_down:"하강",dir_flat:"보합",vol_low:"안정",vol_mid:"보통",vol_high:"변동 큼",
     top_kw:"상위 키워드",empty_title:"아직 데이터가 없습니다",
     empty_desc:"설정을 고르고 ‘트렌드 맵 생성’을 누르세요.",
     btn_merge:"이 키워드를 트렌드 맵에 추가",btn_export:"⬇ CSV 내보내기",
@@ -385,6 +399,9 @@ const STR={
     iv_day:"Day",iv_week:"Week",iv_month:"Month",ai_hist_btn:"✨ AI context",
     hist_title:"Enter a keyword to see its long-term history",hist_desc:"Analyze trend, seasonality and breakouts from accumulated daily data.",
     hist_total:"Total",hist_peak:"Peak",hist_seasonal:"Seasonality",hist_breakout:"Breakout",hist_none:"No data",
+    hist_back:"← Back",hist_breaklegend:"Recently surging keywords · click to see the trend",hist_breaknow:"✨ What's trending now",
+    hist_new:"New",hist_dir:"Trend",hist_momentum:"Momentum",hist_vol:"Volatility",
+    dir_up:"Rising",dir_down:"Falling",dir_flat:"Flat",vol_low:"Stable",vol_mid:"Moderate",vol_high:"Volatile",
     top_kw:"Top keywords",empty_title:"No data yet",
     empty_desc:"Pick options and press ‘Generate trend map’.",
     btn_merge:"Add this keyword to the trend map",btn_export:"⬇ Export CSV",
@@ -1151,6 +1168,7 @@ function bucketHist(days,iv){
 }
 async function loadHistory(kw){
   kw=(kw||"").trim();if(!kw)return;histKw=kw;
+  $("histBack").classList.remove("hidden");$("histAiOut").innerHTML="";
   $("histInfo").innerHTML=`<span class="spin"></span>`;
   const p=new URLSearchParams({keyword:kw,days:$("histDays").value,interval:"day"});regionIds().forEach(v=>p.append("regions",v));
   try{
@@ -1163,11 +1181,49 @@ async function loadHistory(kw){
     const total=histDaily.reduce((a,b)=>a+b.count,0);
     const peak=histDaily.reduce((m,b)=>b.count>m.count?b:m,{count:0,period:"-"});
     const seas=(se.cycles||[]).filter(c=>c.seasonal).map(c=>({weekly:"주간",monthly:"월간",yearly:"연간"}[c.cycle]||c.cycle));
+    const ts=trendSummary(histDaily);
     $("histInfo").innerHTML=
       `<span class="hchip">${t("hist_total")} <b>${total}</b></span>`+
       `<span class="hchip">${t("hist_peak")} <b>${peak.period}</b> (${peak.count})</span>`+
-      `<span class="hchip">${t("hist_seasonal")} <b>${seas.length?seas.join("·"):"—"}</b></span>`;
+      `<span class="hchip">${t("hist_dir")} <b>${t(ts.dirKey)}</b></span>`+
+      `<span class="hchip">${t("hist_momentum")} <b>${ts.momTxt}</b></span>`+
+      `<span class="hchip">${t("hist_vol")} <b>${t(ts.volKey)}</b></span>`+
+      `<span class="hchip">${t("hist_seasonal")} <b>${seas.length?seas.join("·"):"—"}</b></span>`+
+      `<div class="hsum">${trendSentence(kw,ts,seas)}</div>`;
   }catch(e){$("histInfo").innerHTML=`<span class="hchip">${t("ai_err")}</span>`;}
+}
+// 규칙 기반 트렌드 요약(추세/모멘텀/변동성)
+function trendSummary(daily){
+  const ys=(daily||[]).map(p=>p.count),n=ys.length;
+  const sum=a=>a.reduce((x,y)=>x+y,0),avg=a=>a.length?sum(a)/a.length:0;
+  const my=avg(ys);
+  let num=0,den=0;for(let i=0;i<n;i++){num+=(i-(n-1)/2)*(ys[i]-my);den+=(i-(n-1)/2)**2;}
+  const slope=den?num/den:0, rel=my?slope*n/my:0;            // 전 구간 상대 변화
+  const last7=sum(ys.slice(-7)),prev7=sum(ys.slice(-14,-7));
+  const mom=prev7?(last7-prev7)/prev7*100:(last7?100:0);
+  const sd=Math.sqrt(avg(ys.map(v=>(v-my)**2))),cv=my?sd/my:0;
+  const dirKey=rel>0.15?"dir_up":rel<-0.15?"dir_down":"dir_flat";
+  const volKey=cv<0.6?"vol_low":cv<1.1?"vol_mid":"vol_high";
+  const momTxt=(mom>=0?"+":"")+Math.round(mom)+"%";
+  return {slope,rel,mom,momTxt,cv,last7,prev7,dirKey,volKey};
+}
+function trendSentence(kw,ts,seas){
+  const cls=ts.mom>0?"up":ts.mom<0?"down":"";
+  if(lang==="ko"){
+    const dir={dir_up:"상승세",dir_down:"하강세",dir_flat:"보합세"}[ts.dirKey];
+    const vol={vol_low:"안정적",vol_mid:"보통",vol_high:"변동이 큰"}[ts.volKey];
+    const s=`<b>${kw}</b>는 최근 7일 등장이 직전 7일 대비 <span class="${cls}">${ts.momTxt}</span> 변화하며 전반적으로 ${dir}입니다. 변동성은 ${vol} 수준`;
+    return s+(seas.length?`이며, ${seas.join("·")} 주기성이 감지됩니다.`:"입니다.");
+  }
+  const dir={dir_up:"an upward",dir_down:"a downward",dir_flat:"a flat"}[ts.dirKey];
+  const vol={vol_low:"stable",vol_mid:"moderate",vol_high:"volatile"}[ts.volKey];
+  return `<b>${kw}</b> shows ${dir} trend — last 7 days changed <span class="${cls}">${ts.momTxt}</span> vs the prior 7 days. Volatility is ${vol}`+(seas.length?`, with ${seas.join("·")} seasonality.`:".");
+}
+function resetHistory(){
+  histDaily=null;histKw="";$("histInput").value="";
+  d3.select("#histLine").selectAll("*").remove();$("histCal").innerHTML="";
+  $("histAiOut").innerHTML="";$("histBack").classList.add("hidden");
+  loadBreakouts();
 }
 function drawHistLine(){
   const svg=d3.select("#histLine"),el=$("histLine"),W=el.clientWidth,H=el.clientHeight;
@@ -1213,16 +1269,42 @@ function drawCalendar(){
   ["월","수","금"].forEach((lbl,i)=>svg.append("text").attr("x",26).attr("y",14+(i*2)*(cell+gap)+cell-2).attr("text-anchor","end").attr("fill",CV("--muted")).attr("font-size",9).text(lang==="ko"?lbl:["Mon","Wed","Fri"][i]));
 }
 function drawHistory(){if(histDaily){drawHistLine();drawCalendar();}else loadBreakouts();}
+let lastBreakouts=[];
 async function loadBreakouts(){
   const info=$("histInfo");info.innerHTML=`<span class="hchip" style="color:var(--muted)">${t("hist_desc")}</span>`;
   try{
     const p=new URLSearchParams({recent_days:"7",baseline_days:"90",z_min:"2"});regionIds().forEach(v=>p.append("regions",v));
     const list=(await fetch(API+"/api/breakouts?"+p).then(r=>r.json())).breakouts||[];
-    if(!list.length)return;
-    info.innerHTML=`<div style="width:100%;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:2px">🚨 ${t("hist_breakout")}</div>`+
-      list.slice(0,14).map(x=>`<span class="hchip" style="cursor:pointer" data-bk="${encodeURIComponent(x.id)}">${x.id} <b>z${x.z}</b></span>`).join("");
+    lastBreakouts=list;
+    if(!list.length){info.innerHTML=`<span class="hchip" style="color:var(--muted)">${t("hist_none")}</span>`;return;}
+    const header=`<div style="width:100%;display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:4px">`+
+      `<span style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">🚨 ${t("hist_breakout")}</span>`+
+      `<span style="font-size:11px;color:var(--muted)">${t("hist_breaklegend")}</span>`+
+      `<button class="ailabelbtn" id="breakNowBtn" style="margin-left:auto">${t("hist_breaknow")}</button></div>`;
+    const chips=list.slice(0,14).map(x=>{
+      const isNew=x.z>=99;
+      const badge=isNew?`<span class="hbadge new">🆕 ${t("hist_new")}</span>`:`<span class="hbadge spike">🔥 ${x.z}σ</span>`;
+      const tip=`${t("hist_total")} ${x.recent} · ${x.recent_avg}/d vs ${x.baseline_avg}/d`;
+      return `<span class="hchip bk" data-bk="${encodeURIComponent(x.id)}" title="${tip}">${x.id}${badge}</span>`;
+    }).join("");
+    info.innerHTML=header+chips;
     info.querySelectorAll("[data-bk]").forEach(el=>el.addEventListener("click",()=>{const k=decodeURIComponent(el.dataset.bk);$("histInput").value=k;loadHistory(k);}));
+    const bn=$("breakNowBtn");if(bn)bn.addEventListener("click",breakNowAi);
   }catch(e){}
+}
+// "지금 뜨는 주제" — 급등 키워드 묶음 AI 해설
+async function breakNowAi(){
+  const kws=(lastBreakouts||[]).slice(0,12).map(x=>x.id);
+  if(!kws.length)return;
+  const out=$("histAiOut");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
+  const q=lang==="ko"
+    ?`다음은 최근 뉴스에서 급등한 키워드들이다: ${kws.join(", ")}. 이들을 묶어 '지금 뜨는 주제'가 무엇인지 2~3문장으로 분석해줘.`
+    :`These keywords are surging in recent news: ${kws.join(", ")}. In 2-3 sentences, summarize what topics are trending now.`;
+  const p=new URLSearchParams({q,lang,hours:"24"});regionIds().forEach(v=>p.append("regions",v));
+  if(aiModel)p.set("model",aiModel);
+  try{const r=await fetch(API+"/api/ai/ask?"+p,{method:"POST"});
+    out.innerHTML='<button class="aiclose" title="close">×</button>'+(r.ok?fmtAI((await r.json()).answer):(r.status===503?t("ai_disabled"):t("ai_err")));
+  }catch(e){out.textContent=t("ai_err");}
 }
 async function histAiReading(){
   if(!histKw)return;const out=$("histAiOut");out.innerHTML=`<span class="spin"></span> ${t("ai_loading")}`;
@@ -1232,6 +1314,7 @@ async function histAiReading(){
     out.innerHTML='<button class="aiclose" title="close">×</button>'+(r.ok?fmtAI((await r.json()).answer):(r.status===503?t("ai_disabled"):t("ai_err")));
   }catch(e){out.textContent=t("ai_err");}
 }
+$("histBack").addEventListener("click",resetHistory);
 $("histBtn").addEventListener("click",()=>loadHistory($("histInput").value));
 $("histInput").addEventListener("keydown",e=>{if(e.key==="Enter")loadHistory($("histInput").value);});
 $("histInterval").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{
