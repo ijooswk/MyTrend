@@ -110,6 +110,11 @@
     color:var(--muted);gap:10px;text-align:center;padding:20px}.empty b{color:var(--txt);font-size:15px}
   .spin{width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;
     animation:sp .7s linear infinite}@keyframes sp{to{transform:rotate(360deg)}}
+  .loadbar{height:3px;width:100%;background:var(--line);overflow:hidden;position:relative;flex:0 0 auto}
+  .loadbar.hidden{display:none}
+  .loadbar::before{content:"";position:absolute;top:0;left:0;height:100%;width:35%;border-radius:3px;
+    background:var(--accent);animation:lb 1.1s ease-in-out infinite}
+  @keyframes lb{0%{left:-35%;width:35%}50%{width:55%}100%{left:100%;width:35%}}
   .tooltip{position:fixed;pointer-events:none;background:var(--panel);color:var(--txt);border:1px solid var(--line);
     border-radius:8px;padding:8px 11px;font-size:12px;z-index:60;display:none;max-width:320px;line-height:1.5;
     box-shadow:0 6px 20px rgba(0,0,0,.25)}.tooltip b{color:var(--accent)}
@@ -290,6 +295,7 @@
       </div></div>
       <div class="pane" data-v="rising"><div id="risingWrap"></div></div>
     </div>
+    <div class="loadbar hidden" id="loadbar"></div>
     <div class="status" id="status"></div>
   </main>
 </div>
@@ -457,6 +463,7 @@ const hideTip=()=>tip.style.display="none";
 const bind=(id,vid)=>{const s=$(id),v=$(vid);s.addEventListener("input",()=>v.textContent=s.value);};
 bind("hours","hoursVal");bind("minFreq","minFreqVal");bind("maxKw","maxKwVal");bind("perFeed","perFeedVal");bind("assoc","assocVal");
 function setStatus(html,busy){$("status").innerHTML=(busy?'<span class="spin"></span>':"")+html;}
+function setLoadbar(on){const b=$("loadbar");if(b)b.classList.toggle("hidden",!on);}
 function renderInsights(data){
   const box=$("insights");if(!data||!data.insights){box.innerHTML="";return;}
   const html=data.insights.map(x=>{
@@ -568,14 +575,14 @@ async function run(){
   $("run").disabled=false;
 }
 async function ingestNow(){
-  $("ingest").disabled=true;setStatus(t("st_ingesting"),true);
+  $("ingest").disabled=true;setLoadbar(true);setStatus(t("st_ingesting"),true);
   try{
     const p=new URLSearchParams();selected("cat").forEach(v=>p.append("categories",v));
     regionIds().forEach(v=>p.append("regions",v));p.set("hours",$("hours").value);p.set("per_feed",$("perFeed").value);
     await fetch(API+"/api/ingest?"+p,{method:"POST"}).then(r=>r.json());
     await run();
   }catch(e){setStatus("❌ "+e.message);}
-  $("ingest").disabled=false;
+  finally{setLoadbar(false);$("ingest").disabled=false;}
 }
 
 //════════════════ 키워드 검색 ════════════════
